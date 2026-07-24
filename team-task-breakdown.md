@@ -42,7 +42,7 @@ The "what does this client need" logic.
 - Build the retrieval function (fetch a client's KYC profile)
 - Build the matching/gap-analysis function (compare profile vs checklist, list what's missing)
 - **Rule update mechanism (Person B owns delivery; Compliance Owner approves content):**
-  - Deliver a `seed_rules.py` admin script (or equivalent CDK/Lambda invoke) that reads checklist rules from a versioned JSON/YAML file in the repo and writes them to the `ChecklistRules` DynamoDB table via the versioned write path (sets `updated_by` / `updated_at` on every write).
+  - Deliver a `seed_rules.py` admin script that reads checklist rules from a versioned JSON/YAML file in the repo and writes them to the `ChecklistRules` DynamoDB table via the versioned write path (sets `updated_by` / `updated_at` on every write).
   - Document the update runbook in the repo README: edit the source JSON/YAML → run the script → verify via a dry-run query → confirm with Compliance Owner before enabling on live data.
   - This is the sole supported mechanism for loading and updating rules in v1 — no direct table edits. A rule-management UI is deferred (see design.md Open Items).
 

@@ -5,7 +5,7 @@
 > Tasks 6 (partial)–7 → Stream 5 | Task 8 → Stream 6 | Tasks 9–10 → All streams.
 
 - [ ] 1. Set up project foundation and shared data model
-  - [ ] 1.1 Provision core AWS infrastructure (DynamoDB tables: Cases, ChecklistRules, KycProfileCache; S3 buckets: documents, templates, raw-email; EventBridge bus; SQS approval queue) as IaC (CDK/Terraform)
+  - [ ] 1.1 Provision core AWS infrastructure (DynamoDB tables: Cases, ChecklistRules, KycProfileCache; S3 buckets: documents, templates, raw-email; EventBridge bus; SQS approval queue; SNS topic) using AWS CLI scripts. Each resource gets its own script so it can be run and re-run independently. Scripts output resource ARNs/names to a shared `infra-config.json` file that other streams read for connection details.
     - _Requirements: 1.4, 2.1, 10.2_
   - [ ] 1.2 Define canonical data model types/schemas (KycProfile, ChecklistRule, GapAnalysisResult, Case, OutreachEmail, InboundMessage, AuditEvent) as shared code module
     - _Requirements: 1.3_
