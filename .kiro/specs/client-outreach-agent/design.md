@@ -84,6 +84,7 @@ Owns the case lifecycle state machine: `NEW → DATA_RETRIEVED → GAP_ANALYZED 
 - Persists state to DynamoDB `Cases` table on every transition.
 - Emits an audit event on every transition (Requirement 10.1).
 - Enforces SLA timers (Requirement 12.3) via Step Functions wait states + EventBridge timeout rules.
+- **`AWAITING_RESPONSE` wait state:** implemented as a `.waitForTaskToken` Step Functions task. The task token is written to `Cases.sfn_task_token` when the state is entered and cleared on resume. The Inbound Analysis Agent uses this token to call `sfn:SendTaskSuccess`/`sfn:SendTaskFailure` and resume the case (see Component 5). The wait state has a heartbeat/timeout equal to the configurable customer-response window (default 10 business days, per Requirement 12.3); on timeout, the orchestrator transitions directly to `ESCALATED`.
 
 ### 2. Retrieval Agent (Lambda + Bedrock Agent, tool-calling)
 - **Tool:** `get_kyc_profile(client_id)` — calls the KYC system of record's API/DB adapter.
@@ -111,6 +112,7 @@ Owns the case lifecycle state machine: `NEW → DATA_RETRIEVED → GAP_ANALYZED 
 - **Attachment safety gate** (deterministic, runs first): file-type allowlist (PDF/JPEG/PNG/DOCX), size limit, and malware scan (e.g., S3 + GuardDuty Malware Protection or ClamAV Lambda layer) before anything touches the LLM (Requirement 6.7, 11.4). Failing items are quarantined, never processed.
 - **Classification & extraction** (Bedrock multimodal / Textract for OCR): classifies each attachment against outstanding requirement types, extracts structured fields.
 - Confidence scoring on both classification and extraction; below threshold (configurable, default 0.75) → flagged `NEEDS_ANALYST_REVIEW` (Requirement 6.6).
+- **Orchestrator resume handoff:** The Case Orchestrator holds the `AWAITING_RESPONSE` wait state using a Step Functions task token (`.waitForTaskToken`), stored in the `Cases` table alongside the case record. Once the Inbound Analysis Agent completes correlation and initial triage, it calls `sfn:SendTaskSuccess` (or `sfn:SendTaskFailure` on an unrecoverable error) with the stored task token to resume the state machine. This explicit token-passing pattern ensures the orchestrator — not the agent — owns state transitions and prevents a case from getting stuck if the agent Lambda exits before signalling back. The task token is scoped per case and expires after the `AWAITING_RESPONSE` timeout window (see Component 1, SLA timers, and Requirement 12.3).
 
 ### 6. Validation & Update Agent (Lambda, deterministic)
 - Validates extracted data against the specific checklist requirement (expiry, name match to client record, required field completeness) (Requirement 6.5).
@@ -158,6 +160,7 @@ Case (DynamoDB primary table)
 - status (state machine value)
 - follow_up_count
 - risk_flags, escalation_reason
+- sfn_task_token (nullable — set when AWAITING_RESPONSE, cleared on resume)
 - created_at, updated_at, sla_due_at
 
 OutreachEmail
@@ -189,7 +192,7 @@ AuditEvent
 | KYC record update fails | Retry per policy → alert analyst on exhaustion (Req 8.3) |
 | Email bounce/delivery failure | Update `delivery_status`, surface on insights view, do not silently retry indefinitely |
 | Follow-up cycle limit reached | Force escalation to analyst (Req 7.4) |
-| SLA breach | Force escalation regardless of automation state (Req 12.3) |
+| SLA breach | Force escalation regardless of automation state (Req 12.3). Two configurable thresholds: customer response window (default 10 business days from outreach send) and overall case age (default 30 business days from case open). Implemented as Step Functions `.waitForTaskToken` timeout on `AWAITING_RESPONSE` and a separate EventBridge scheduled rule for overall case age. |
 
 All escalation paths converge on the same mechanism: set `Case.status = ESCALATED` (or a review sub-state), write `escalation_reason`, emit SNS notification, surface on the insights view. This keeps exception handling uniform and easy to audit.
 

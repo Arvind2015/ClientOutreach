@@ -1,5 +1,9 @@
 # Implementation Plan
 
+> **Stream mapping:** Each task group below corresponds to one or more streams in `team-task-breakdown.md`.
+> Task 1 → Stream 1 | Tasks 2–3 → Stream 2 | Task 4 → Stream 3 | Tasks 5–6 (partial) → Stream 4 |
+> Tasks 6 (partial)–7 → Stream 5 | Task 8 → Stream 6 | Tasks 9–10 → All streams.
+
 - [ ] 1. Set up project foundation and shared data model
   - [ ] 1.1 Provision core AWS infrastructure (DynamoDB tables: Cases, ChecklistRules, KycProfileCache; S3 buckets: documents, templates, raw-email; EventBridge bus; SQS approval queue) as IaC (CDK/Terraform)
     - _Requirements: 1.4, 2.1, 10.2_
@@ -60,6 +64,8 @@
     - _Requirements: 6.5_
   - [ ] 5.6 Implement confidence-threshold gate routing low-confidence items to analyst review
     - _Requirements: 6.6_
+  - [ ] 5.6a Store classification and extraction confidence thresholds as runtime-configurable parameters (e.g., SSM Parameter Store or a `Config` DynamoDB table entry), not as code constants. Provide separate threshold keys for classification confidence and extraction confidence so they can be tuned independently during the shadow-mode pilot (task 10.1) without a code deployment.
+    - _Requirements: 6.6, 10.1_
   - [ ] 5.7 Write tests using a golden set of sample emails/attachments (valid docs, expired docs, wrong type, poor scan quality, unsupported/malicious file types)
 
 - [ ] 6. Build Validation & Update Agent and follow-up loop
@@ -95,7 +101,7 @@
     - _Requirements: 9.1, 9.2, 9.4_
   - [ ] 8.2 Implement approve/edit/reject action for queued outreach emails (same lightweight view/script)
     - _Requirements: 5.3, 5.4_
-  - [ ] 8.3 Implement notification integration (email or simple alert) to the responsible analyst
+  - [ ] 8.3 Implement analyst notification: provision an SNS topic and subscribe the shared analyst mailbox (e.g., `kyc-outreach-alerts@<bank-domain>`) to it. Publish to this topic whenever a case transitions to `PENDING_APPROVAL`, `NEEDS_ANALYST_REVIEW`, `ESCALATED`, or `BLOCKED`. SNS topic ARN to be created in task 1.1 infrastructure and passed as an environment variable to all publishing components. In-app/browser notifications and per-analyst routing are deferred to future production dashboard work.
     - _Requirements: 9.3_
   - [ ] 8.4 Implement audit trail export (per-case) for review
     - _Requirements: 10.3_
