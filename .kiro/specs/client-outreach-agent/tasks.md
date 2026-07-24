@@ -91,7 +91,7 @@
   - [ ] 7.5 Write end-to-end integration test simulating a full case lifecycle against mocked KYC source and sandbox mailbox
 
 - [ ] 8. Build Analyst Dashboard
-  - [ ] 8.1 Implement authentication via Cognito + bank IdP federation, with analyst/compliance-admin roles
+  - [ ] 8.1 Implement authentication via Cognito + organization IdP federation, with analyst/compliance-admin roles
     - _Requirements: 11.2_
   - [ ] 8.2 Implement case list view with filter/sort by status, risk, SLA age, owner
     - _Requirements: 9.4_

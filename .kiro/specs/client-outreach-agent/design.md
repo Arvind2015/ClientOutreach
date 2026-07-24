@@ -124,7 +124,7 @@ Owns the case lifecycle state machine: `NEW → DATA_RETRIEVED → GAP_ANALYZED 
 - Approval queue UI for `NEEDS_APPROVAL` outreach (edit/approve/reject) (Requirement 5.3, 5.4).
 - Escalation reason surfaced explicitly per case (Requirement 9.2).
 - Filter/sort by status, risk, SLA age, owner (Requirement 9.4).
-- Auth via existing bank IdP (SAML/OIDC → Cognito).
+- Auth via existing organization IdP (SAML/OIDC → Cognito).
 
 ### 8. Audit & Notification Layer
 - Every component writes structured events to an **audit event bus** (EventBridge) → persisted to an append-only store (DynamoDB with stream → S3/Glacier for long-term retention, or Amazon QLDB if cryptographic verifiability is required).
@@ -196,8 +196,8 @@ All escalation paths converge on the same mechanism: set `Case.status = ESCALATE
 ## Security
 
 - **Encryption:** KMS-encrypted S3 buckets and DynamoDB tables; TLS in transit everywhere (Req 11.1).
-- **Access control:** IAM least-privilege per Lambda/agent role; dashboard access via Cognito + bank IdP federation, role-based (analyst vs. compliance-admin) (Req 11.2).
-- **LLM boundary:** Bedrock models used within the AWS account's VPC/PrivateLink boundary; no data sent to non-approved external APIs (Req 11.3). Confirm with the bank's model-risk/compliance team which Bedrock models are approved for PII processing before implementation.
+- **Access control:** IAM least-privilege per Lambda/agent role; dashboard access via Cognito + organization IdP federation, role-based (analyst vs. compliance-admin) (Req 11.2).
+- **LLM boundary:** Bedrock models used within the AWS account's VPC/PrivateLink boundary; no data sent to non-approved external APIs (Req 11.3). Confirm with the organization's model-risk/compliance team which Bedrock models are approved for PII processing before implementation.
 - **Attachment safety:** malware scan + type/size allowlist before any parsing (Req 11.4).
 - **Template constraint on generation:** outbound customer emails are template-bounded (see Component 4) specifically to reduce prompt-injection and hallucination risk in a regulated, customer-facing channel — this is both a security and compliance control.
 - **Prompt injection consideration:** inbound email/attachment content is treated as untrusted input to the Inbound Analysis Agent; extraction/classification outputs are validated deterministically (Component 6) before any KYC record write, so LLM output never directly mutates the system of record without a rules-based check.
@@ -215,5 +215,5 @@ All escalation paths converge on the same mechanism: set `Case.status = ESCALATE
 1. Identity of the specific "KYC system of record" and its API/integration contract (assumed generic adapter above).
 2. Approved Bedrock model(s) for PII-bearing workloads — pending model-risk approval.
 3. Definition of "standard case" auto-send criteria — proposed in this design but must be compliance-approved before enabling Requirement 5.1 autonomy.
-4. Whether QLDB (cryptographically verifiable ledger) is required for audit, or DynamoDB+S3 append-only pattern is sufficient for regulatory needs — depends on the bank's audit standards.
+4. Whether QLDB (cryptographically verifiable ledger) is required for audit, or DynamoDB+S3 append-only pattern is sufficient for regulatory needs — depends on the organization's audit standards.
 5. Multi-language template coverage scope (Requirement 4.4) — which languages are in scope for v1.

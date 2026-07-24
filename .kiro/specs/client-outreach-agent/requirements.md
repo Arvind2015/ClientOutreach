@@ -2,7 +2,7 @@
 
 ## Introduction
 
-The Client Outreach Agent automates KYC (Know Your Customer) remediation communication between a bank and its customers. The agent identifies missing or incomplete KYC information for a client by comparing the client's current KYC profile against a configurable checklist, generates and dispatches outreach emails requesting the missing items, monitors and analyzes inbound customer replies (including document attachments), and either updates the KYC record automatically or routes ambiguous/high-risk cases to a human analyst for review.
+The Client Outreach Agent automates KYC (Know Your Customer) remediation communication between an organization and its customers. The agent identifies missing or incomplete KYC information for a client by comparing the client's current KYC profile against a configurable checklist, generates and dispatches outreach emails requesting the missing items, monitors and analyzes inbound customer replies (including document attachments), and either updates the KYC record automatically or routes ambiguous/high-risk cases to a human analyst for review.
 
 The solution favors a **hybrid autonomy model**: routine, unambiguous outreach and response-processing happens automatically; anything uncertain, high-risk, or outside defined rules is escalated to an analyst with full context before any customer-facing action is taken. All agent decisions are logged for audit and regulatory compliance.
 
@@ -56,7 +56,7 @@ Target stack: AWS-native (Bedrock Agents, Lambda, Amazon SES/WorkMail, S3, Dynam
 
 ### Requirement 5: Outreach Dispatch with Hybrid Approval
 
-**User Story:** As a KYC analyst, I want standard outreach to send automatically while unusual or high-risk cases wait for my approval, so that the bank gets efficiency without losing oversight where it matters.
+**User Story:** As a KYC analyst, I want standard outreach to send automatically while unusual or high-risk cases wait for my approval, so that the organization gets efficiency without losing oversight where it matters.
 
 #### Acceptance Criteria
 
@@ -119,12 +119,12 @@ Target stack: AWS-native (Bedrock Agents, Lambda, Amazon SES/WorkMail, S3, Dynam
 #### Acceptance Criteria
 
 1. THE system SHALL log every agent decision (data retrieved, checklist applied, gap analysis result, email generated/sent, attachment classification/validation, escalation, record update) with timestamp, actor (agent or analyst identity), and relevant input/output data.
-2. AUDIT logs SHALL be immutable/append-only and retained per the bank's regulatory retention policy.
+2. AUDIT logs SHALL be immutable/append-only and retained per the organization's regulatory retention policy.
 3. THE system SHALL support export of a case's full audit trail for regulatory inquiry or internal review.
 
 ### Requirement 11: Security and Data Privacy
 
-**User Story:** As a security officer, I want customer PII and KYC documents handled with strict access controls and encryption, so that the solution meets the bank's data protection obligations.
+**User Story:** As a security officer, I want customer PII and KYC documents handled with strict access controls and encryption, so that the solution meets the organization's data protection obligations.
 
 #### Acceptance Criteria
 
