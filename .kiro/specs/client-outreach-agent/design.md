@@ -46,7 +46,7 @@ flowchart TB
     end
 
     subgraph UX
-        DASH[Analyst Dashboard - Web App]
+        DASH[Analyst Insights View - lightweight]
         NOTIFY[SNS: Notifications]
     end
 
@@ -84,6 +84,7 @@ Owns the case lifecycle state machine: `NEW → DATA_RETRIEVED → GAP_ANALYZED 
 - Persists state to DynamoDB `Cases` table on every transition.
 - Emits an audit event on every transition (Requirement 10.1).
 - Enforces SLA timers (Requirement 12.3) via Step Functions wait states + EventBridge timeout rules.
+- **`AWAITING_RESPONSE` wait state:** implemented as a `.waitForTaskToken` Step Functions task. The task token is written to `Cases.sfn_task_token` when the state is entered and cleared on resume. The Inbound Analysis Agent uses this token to call `sfn:SendTaskSuccess`/`sfn:SendTaskFailure` and resume the case (see Component 5). The wait state has a heartbeat/timeout equal to the configurable customer-response window (default 10 business days, per Requirement 12.3); on timeout, the orchestrator transitions directly to `ESCALATED`.
 
 ### 2. Retrieval Agent (Lambda + Bedrock Agent, tool-calling)
 - **Tool:** `get_kyc_profile(client_id)` — calls the KYC system of record's API/DB adapter.
@@ -93,7 +94,7 @@ Owns the case lifecycle state machine: `NEW → DATA_RETRIEVED → GAP_ANALYZED 
 
 ### 3. Checklist Rules Engine (Lambda, deterministic — not an LLM)
 - Data-driven rule table in DynamoDB (`ChecklistRules`), keyed by `(client_type, jurisdiction, risk_rating)` → list of required `requirement_type` codes with metadata (expiry rules, validity window).
-- Rule changes go through a versioned write path with `updated_by` / `updated_at` (Requirement 2.2) — exposed via the dashboard, not direct table edits.
+- Rule changes go through a versioned write path with `updated_by` / `updated_at` (Requirement 2.2) — for v1, applied via a config/script-driven update path rather than direct table edits or a dedicated rule-management UI (that UI is deferred, see design's Analyst Insights View note and Open Items).
 - Falls back to `DEFAULT_BASELINE` ruleset + flags case `NEEDS_RULE_REVIEW` when no rule matches (Requirement 2.3).
 - **Matching Engine** (same component, separate function): diffs `KycProfile.documents/fields` against the resolved checklist, treating expired documents as missing (Requirement 3.2), and emits a structured `GapAnalysisResult`.
 
@@ -102,7 +103,7 @@ Owns the case lifecycle state machine: `NEW → DATA_RETRIEVED → GAP_ANALYZED 
 - **Tool:** `render_template(template_id, variables)` — the agent selects an approved template from a template library (S3/DynamoDB) and populates variables; it does not free-generate the entire email body (Requirement 4.3). This bounds hallucination risk in a customer-facing regulated communication.
 - Attaches a unique `case_ref` token embedded in the subject line and a hidden header (`X-Case-Ref`) for reply correlation (Requirement 4.2, 6.2).
 - **Standard-case classifier** (deterministic rule, not LLM): evaluates dispatch-eligibility criteria (risk rating, follow-up count, known client, template match) to output `AUTO_SEND` or `NEEDS_APPROVAL` (Requirement 5.1, 5.2). Keeping this rule deterministic and reviewable is a deliberate compliance choice.
-- `AUTO_SEND` → publishes to SES send Lambda. `NEEDS_APPROVAL` → writes to SQS approval queue, surfaced on the Analyst Dashboard (Requirement 5.2, 9.2).
+- `AUTO_SEND` → publishes to SES send Lambda. `NEEDS_APPROVAL` → writes to SQS approval queue, surfaced on the Analyst Insights View (Requirement 5.2, 9.2).
 - Enforces minimum re-contact interval per client (Requirement 12.2).
 
 ### 5. Inbound Analysis Agent (Bedrock Agent, multimodal + tool-calling)
@@ -111,6 +112,7 @@ Owns the case lifecycle state machine: `NEW → DATA_RETRIEVED → GAP_ANALYZED 
 - **Attachment safety gate** (deterministic, runs first): file-type allowlist (PDF/JPEG/PNG/DOCX), size limit, and malware scan (e.g., S3 + GuardDuty Malware Protection or ClamAV Lambda layer) before anything touches the LLM (Requirement 6.7, 11.4). Failing items are quarantined, never processed.
 - **Classification & extraction** (Bedrock multimodal / Textract for OCR): classifies each attachment against outstanding requirement types, extracts structured fields.
 - Confidence scoring on both classification and extraction; below threshold (configurable, default 0.75) → flagged `NEEDS_ANALYST_REVIEW` (Requirement 6.6).
+- **Orchestrator resume handoff:** The Case Orchestrator holds the `AWAITING_RESPONSE` wait state using a Step Functions task token (`.waitForTaskToken`), stored in the `Cases` table alongside the case record. Once the Inbound Analysis Agent completes correlation and initial triage, it calls `sfn:SendTaskSuccess` (or `sfn:SendTaskFailure` on an unrecoverable error) with the stored task token to resume the state machine. This explicit token-passing pattern ensures the orchestrator — not the agent — owns state transitions and prevents a case from getting stuck if the agent Lambda exits before signalling back. The task token is scoped per case and expires after the `AWAITING_RESPONSE` timeout window (see Component 1, SLA timers, and Requirement 12.3).
 
 ### 6. Validation & Update Agent (Lambda, deterministic)
 - Validates extracted data against the specific checklist requirement (expiry, name match to client record, required field completeness) (Requirement 6.5).
@@ -119,17 +121,17 @@ Owns the case lifecycle state machine: `NEW → DATA_RETRIEVED → GAP_ANALYZED 
 - Triggers re-run of Matching Engine to determine remaining gaps → feeds follow-up loop (Requirement 7.1) or case closure (Requirement 7.3, 3.4).
 - Enforces `max_follow_up_cycles` (default 3) and escalates on limit (Requirement 7.4).
 
-### 7. Analyst Dashboard (Web app — e.g., Amplify/React frontend on API Gateway + Lambda)
+### 7. Analyst Insights View (lightweight — e.g., a script, notebook, or minimal read-only page reading directly from the `Cases`/`Audit` tables)
 - Case list/detail views per Requirement 9.1: profile, checklist applied, gap analysis, outreach history, inbound responses, extraction confidence, status.
-- Approval queue UI for `NEEDS_APPROVAL` outreach (edit/approve/reject) (Requirement 5.3, 5.4).
+- Approve/edit/reject action for `NEEDS_APPROVAL` outreach (Requirement 5.3, 5.4) — the same lightweight view/script, not a dedicated approval-queue application.
 - Escalation reason surfaced explicitly per case (Requirement 9.2).
-- Filter/sort by status, risk, SLA age, owner (Requirement 9.4).
-- Auth via existing bank IdP (SAML/OIDC → Cognito).
+- Filter/sort by status and risk rating (Requirement 9.4).
+- Runs within the existing trusted environment for v1 — no separate SSO/IdP-backed web app. A production-grade dashboard with Cognito + bank IdP federation and multi-analyst role management is future work (see Open Items), not required for the training-project scope.
 
 ### 8. Audit & Notification Layer
 - Every component writes structured events to an **audit event bus** (EventBridge) → persisted to an append-only store (DynamoDB with stream → S3/Glacier for long-term retention, or Amazon QLDB if cryptographic verifiability is required).
 - Export function generates a case-scoped audit report (PDF/CSV) on demand (Requirement 10.3).
-- SNS/dashboard notifications to the responsible analyst on any case requiring action (Requirement 9.3).
+- SNS/insights-view notifications to the responsible analyst on any case requiring action (Requirement 9.3).
 
 ## Data Models
 
@@ -158,6 +160,7 @@ Case (DynamoDB primary table)
 - status (state machine value)
 - follow_up_count
 - risk_flags, escalation_reason
+- sfn_task_token (nullable — set when AWAITING_RESPONSE, cleared on resume)
 - created_at, updated_at, sla_due_at
 
 OutreachEmail
@@ -187,16 +190,23 @@ AuditEvent
 | Unsupported/unsafe attachment | Quarantine, do not process, notify analyst (Req 6.7, 11.4) |
 | Uncorrelated inbound email | Route to `ManualTriageQueue` (Req 6.3) |
 | KYC record update fails | Retry per policy → alert analyst on exhaustion (Req 8.3) |
-| Email bounce/delivery failure | Update `delivery_status`, surface on dashboard, do not silently retry indefinitely |
+| Email bounce/delivery failure | Update `delivery_status`, surface on insights view, do not silently retry indefinitely |
 | Follow-up cycle limit reached | Force escalation to analyst (Req 7.4) |
-| SLA breach | Force escalation regardless of automation state (Req 12.3) |
+| SLA breach | Force escalation regardless of automation state (Req 12.3). Two configurable thresholds: customer response window (default 10 business days from outreach send) and overall case age (default 30 business days from case open). Implemented as Step Functions `.waitForTaskToken` timeout on `AWAITING_RESPONSE` and a separate EventBridge scheduled rule for overall case age. |
 
-All escalation paths converge on the same mechanism: set `Case.status = ESCALATED` (or a review sub-state), write `escalation_reason`, emit SNS notification, surface on dashboard. This keeps exception handling uniform and easy to audit.
+All escalation paths converge on the same mechanism: set `Case.status = ESCALATED` (or a review sub-state), write `escalation_reason`, emit SNS notification, surface on the insights view. This keeps exception handling uniform and easy to audit.
+
+## Performance and Scalability
+
+- **Case isolation:** each case is a distinct Step Functions execution with its own DynamoDB item (`case_id` partition key) and its own audit-event stream — concurrent cases share no mutable in-memory state, satisfying Requirement 13.1.
+- **Horizontal scale:** Lambda concurrency and Step Functions executions scale out automatically with volume (subject to configured account concurrency limits); DynamoDB tables use on-demand or auto-scaled provisioned capacity to absorb campaign-driven spikes (Requirement 13.3).
+- **Inbound triage latency:** the SES → S3 → EventBridge → Lambda path for inbound mail is designed for sub-minute dispatch; end-to-end triage/correlation is targeted at minutes, not hours (Requirement 13.2). This target should be validated under load during the pilot.
+- **Capacity alerting:** CloudWatch alarms on Lambda throttling, Step Functions execution limits, and DynamoDB throttled requests notify operators before volume silently backs up (Requirement 13.4).
 
 ## Security
 
 - **Encryption:** KMS-encrypted S3 buckets and DynamoDB tables; TLS in transit everywhere (Req 11.1).
-- **Access control:** IAM least-privilege per Lambda/agent role; dashboard access via Cognito + bank IdP federation, role-based (analyst vs. compliance-admin) (Req 11.2).
+- **Access control:** IAM least-privilege per Lambda/agent role (Req 11.2). The v1 lightweight insights view runs within the existing trusted environment; Cognito + bank IdP federation with role-based access (analyst vs. compliance-admin) is deferred to the production dashboard (see Open Items).
 - **LLM boundary:** Bedrock models used within the AWS account's VPC/PrivateLink boundary; no data sent to non-approved external APIs (Req 11.3). Confirm with the bank's model-risk/compliance team which Bedrock models are approved for PII processing before implementation.
 - **Attachment safety:** malware scan + type/size allowlist before any parsing (Req 11.4).
 - **Template constraint on generation:** outbound customer emails are template-bounded (see Component 4) specifically to reduce prompt-injection and hallucination risk in a regulated, customer-facing channel — this is both a security and compliance control.
@@ -217,3 +227,4 @@ All escalation paths converge on the same mechanism: set `Case.status = ESCALATE
 3. Definition of "standard case" auto-send criteria — proposed in this design but must be compliance-approved before enabling Requirement 5.1 autonomy.
 4. Whether QLDB (cryptographically verifiable ledger) is required for audit, or DynamoDB+S3 append-only pattern is sufficient for regulatory needs — depends on the bank's audit standards.
 5. Multi-language template coverage scope (Requirement 4.4) — which languages are in scope for v1.
+6. When/whether to build the production-grade Analyst Dashboard (Cognito + bank IdP federation, role-based multi-analyst access) — deferred beyond the v1 lightweight insights view; timing depends on pilot outcomes and analyst headcount using the system.

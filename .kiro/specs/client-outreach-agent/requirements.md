@@ -101,16 +101,18 @@ Target stack: AWS-native (Bedrock Agents, Lambda, Amazon SES/WorkMail, S3, Dynam
 2. THE system SHALL retain the original submitted document alongside extracted/structured data for audit purposes.
 3. IF a record update fails (system unavailable, conflict) THEN the system SHALL retry according to a defined policy and alert an analyst if retries are exhausted.
 
-### Requirement 9: Analyst Contextual Insights and Case Dashboard
+### Requirement 9: Analyst Contextual Insights View
 
-**User Story:** As a KYC analyst, I want a dashboard showing case status, agent actions, and confidence levels, so that I can quickly understand and act on cases needing my attention.
+**User Story:** As a KYC analyst, I want a view showing case status, agent actions, and confidence levels, so that I can quickly understand and act on cases needing my attention.
 
 #### Acceptance Criteria
 
 1. THE system SHALL provide analysts a case view showing: client details, checklist applied, gap analysis results, outreach history, inbound responses, extraction/validation results with confidence scores, and current case status.
 2. WHEN a case is routed for analyst approval or review THEN the system SHALL surface the specific reason for escalation (e.g., "high risk rating," "low OCR confidence: 0.62," "3rd follow-up").
 3. THE system SHALL notify the responsible analyst (via email, in-app notification, or configured channel) when a case requires their action.
-4. THE dashboard SHALL allow an analyst to filter/sort cases by status, risk rating, SLA/age, and assigned owner.
+4. THE system SHALL allow an analyst to filter/sort the case list by status and risk rating.
+
+**Note:** For the initial (training-project) build, this is a lightweight internal view (e.g., a script, notebook, or simple read-only page) rather than a production web application with SSO/IdP-backed authentication and multi-analyst assignment. A full production dashboard is out of scope for v1.
 
 ### Requirement 10: Audit Logging and Compliance
 
@@ -141,4 +143,15 @@ Target stack: AWS-native (Bedrock Agents, Lambda, Amazon SES/WorkMail, S3, Dynam
 
 1. IF any automated step (retrieval, matching, generation, classification, extraction, validation, dispatch) encounters an error or low-confidence result THEN the system SHALL halt automated progression of that case and route it to analyst review with the relevant context.
 2. THE system SHALL NOT send more than one outreach email to the same client within a configurable minimum interval (default 5 business days), to avoid over-communication.
-3. WHEN a case has been open beyond a configurable SLA THEN the system SHALL escalate it to an analyst regardless of automation state.
+3. WHEN a case has been open beyond a configurable SLA THEN the system SHALL escalate it to an analyst regardless of automation state. The SLA has two configurable thresholds: (a) customer response window — the time allowed for a customer to reply after an outreach email is sent (default 10 business days), after which the case is escalated; (b) overall case age — the maximum time a case may remain open before forced escalation regardless of state (default 30 business days). Both defaults must be confirmed with the compliance team before go-live.
+
+### Requirement 13: Scalability and Performance
+
+**User Story:** As a compliance owner, I want the agent to handle many client cases concurrently without cross-case interference or unacceptable delay, so that a remediation campaign can scale to the bank's full client population without degrading service.
+
+#### Acceptance Criteria
+
+1. THE system SHALL support concurrent processing of multiple client cases without state, data, or audit-log interference between cases.
+2. WHEN an inbound customer reply is received THEN the system SHALL triage and correlate it to its case within a target latency of minutes (default target, tunable per pilot), not hours.
+3. THE system SHALL scale case-processing throughput horizontally (e.g., additional Lambda concurrency / Step Functions executions) to absorb campaign-driven volume spikes without manual intervention.
+4. IF case volume approaches a configured throughput or concurrency limit THEN the system SHALL surface this to operators (e.g., via monitoring/alerting) rather than silently queuing or dropping cases.
