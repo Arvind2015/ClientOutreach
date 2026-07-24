@@ -19,7 +19,7 @@ Stream 1 (Infrastructure)
     │         │                                                 │
     │         └──► Stream 5 (Case Flow & Follow-Up Logic) ◄────┤
     │                   │                                       │
-    │                   └──► Stream 6 (Analyst Dashboard)       │
+    │                   └──► Stream 6 (Analyst Insights View)       │
     │                                                           │
     └──► Stream 4 (Inbound Email & Document Reading) ───────────┘
 ```
@@ -33,7 +33,7 @@ Stream 1 (Infrastructure)
 | Stream 3 — Outreach Generation | Streams 1, 2 | Stream 5 |
 | Stream 4 — Inbound Email & Docs | Stream 1 | Stream 5 |
 | Stream 5 — Case Flow & Follow-Up | Streams 1, 2, 3, 4 | Stream 6 (live data) |
-| Stream 6 — Analyst Dashboard | Stream 1 (stub data); Stream 5 (live data) | — |
+| Stream 6 — Analyst Insights View | Stream 1 (stub data); Stream 5 (live data) | — |
 
 ---
 
