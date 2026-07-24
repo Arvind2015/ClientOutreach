@@ -53,11 +53,10 @@ The "glue" that ties everything into one process per client.
 - Build escalation rules (when something needs a human)
 - Build the audit log (record every automated decision), and support exporting a case's audit trail on request
 
-## Stream 6 — Analyst Dashboard (Owner: Person F)
-The "human view" into the system.
-- Case list view (status, who's assigned, how old)
-- Case detail view (what's missing, history, why it was escalated)
-- Approval queue screen (approve/edit/reject a drafted email)
+## Stream 6 — Analyst Insights View (Owner: Person F)
+A lightweight "human view" into the system — a script, notebook, or simple read-only page is enough; no login/auth system needed for this project. A full production dashboard (SSO, multi-analyst roles) is future work, not part of this build.
+- Case list + detail view (status, what's missing, history, why it was escalated)
+- Simple approve/edit/reject action for a drafted email (can be the same view/script)
 - Basic notifications when a case needs attention
 
 ---

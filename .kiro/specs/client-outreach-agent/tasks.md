@@ -90,21 +90,17 @@
     - _Requirements: 12.1_
   - [ ] 7.5 Write end-to-end integration test simulating a full case lifecycle against mocked KYC source and sandbox mailbox
 
-- [ ] 8. Build Analyst Dashboard
-  - [ ] 8.1 Implement authentication via Cognito + organization IdP federation, with analyst/compliance-admin roles
-    - _Requirements: 11.2_
-  - [ ] 8.2 Implement case list view with filter/sort by status, risk, SLA age, owner
-    - _Requirements: 9.4_
-  - [ ] 8.3 Implement case detail view (profile, checklist, gap analysis, outreach history, inbound responses, confidence scores, status, escalation reason)
-    - _Requirements: 9.1, 9.2_
-  - [ ] 8.4 Implement approval queue UI (approve/edit/reject queued outreach emails)
+- [ ] 8. Build Analyst Insights View (lightweight — script/notebook/simple read-only page; no auth system for v1)
+  - [ ] 8.1 Implement case list + detail view (profile, checklist, gap analysis, outreach history, inbound responses, confidence scores, status, escalation reason), filterable by status and risk rating
+    - _Requirements: 9.1, 9.2, 9.4_
+  - [ ] 8.2 Implement approve/edit/reject action for queued outreach emails (same lightweight view/script)
     - _Requirements: 5.3, 5.4_
-  - [ ] 8.5 Implement checklist rule management UI (create/update rules, versioned, audit-logged)
-    - _Requirements: 2.2, 2.4_
-  - [ ] 8.6 Implement notification integration (SNS-triggered in-app/email alerts to responsible analyst)
+  - [ ] 8.3 Implement notification integration (email or simple alert) to the responsible analyst
     - _Requirements: 9.3_
-  - [ ] 8.7 Implement audit trail export (per-case PDF/CSV) for regulatory inquiry
+  - [ ] 8.4 Implement audit trail export (per-case) for review
     - _Requirements: 10.3_
+  - [ ] 8.5 (Future / out of v1 scope) Production dashboard: Cognito + bank IdP auth, role-based multi-analyst access, checklist rule management UI
+    - _Requirements: 2.2, 2.4, 11.2_
 
 - [ ] 9. Security hardening pass
   - [ ] 9.1 Verify encryption at rest (KMS) and in transit (TLS) across all data stores and integrations

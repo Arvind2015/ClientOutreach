@@ -46,7 +46,7 @@ flowchart TB
     end
 
     subgraph UX
-        DASH[Analyst Dashboard - Web App]
+        DASH[Analyst Insights View - lightweight]
         NOTIFY[SNS: Notifications]
     end
 
@@ -93,7 +93,7 @@ Owns the case lifecycle state machine: `NEW → DATA_RETRIEVED → GAP_ANALYZED 
 
 ### 3. Checklist Rules Engine (Lambda, deterministic — not an LLM)
 - Data-driven rule table in DynamoDB (`ChecklistRules`), keyed by `(client_type, jurisdiction, risk_rating)` → list of required `requirement_type` codes with metadata (expiry rules, validity window).
-- Rule changes go through a versioned write path with `updated_by` / `updated_at` (Requirement 2.2) — exposed via the dashboard, not direct table edits.
+- Rule changes go through a versioned write path with `updated_by` / `updated_at` (Requirement 2.2) — for v1, applied via a config/script-driven update path rather than direct table edits or a dedicated rule-management UI (that UI is deferred, see design's Analyst Insights View note and Open Items).
 - Falls back to `DEFAULT_BASELINE` ruleset + flags case `NEEDS_RULE_REVIEW` when no rule matches (Requirement 2.3).
 - **Matching Engine** (same component, separate function): diffs `KycProfile.documents/fields` against the resolved checklist, treating expired documents as missing (Requirement 3.2), and emits a structured `GapAnalysisResult`.
 
@@ -102,7 +102,7 @@ Owns the case lifecycle state machine: `NEW → DATA_RETRIEVED → GAP_ANALYZED 
 - **Tool:** `render_template(template_id, variables)` — the agent selects an approved template from a template library (S3/DynamoDB) and populates variables; it does not free-generate the entire email body (Requirement 4.3). This bounds hallucination risk in a customer-facing regulated communication.
 - Attaches a unique `case_ref` token embedded in the subject line and a hidden header (`X-Case-Ref`) for reply correlation (Requirement 4.2, 6.2).
 - **Standard-case classifier** (deterministic rule, not LLM): evaluates dispatch-eligibility criteria (risk rating, follow-up count, known client, template match) to output `AUTO_SEND` or `NEEDS_APPROVAL` (Requirement 5.1, 5.2). Keeping this rule deterministic and reviewable is a deliberate compliance choice.
-- `AUTO_SEND` → publishes to SES send Lambda. `NEEDS_APPROVAL` → writes to SQS approval queue, surfaced on the Analyst Dashboard (Requirement 5.2, 9.2).
+- `AUTO_SEND` → publishes to SES send Lambda. `NEEDS_APPROVAL` → writes to SQS approval queue, surfaced on the Analyst Insights View (Requirement 5.2, 9.2).
 - Enforces minimum re-contact interval per client (Requirement 12.2).
 
 ### 5. Inbound Analysis Agent (Bedrock Agent, multimodal + tool-calling)
@@ -119,17 +119,17 @@ Owns the case lifecycle state machine: `NEW → DATA_RETRIEVED → GAP_ANALYZED 
 - Triggers re-run of Matching Engine to determine remaining gaps → feeds follow-up loop (Requirement 7.1) or case closure (Requirement 7.3, 3.4).
 - Enforces `max_follow_up_cycles` (default 3) and escalates on limit (Requirement 7.4).
 
-### 7. Analyst Dashboard (Web app — e.g., Amplify/React frontend on API Gateway + Lambda)
+### 7. Analyst Insights View (lightweight — e.g., a script, notebook, or minimal read-only page reading directly from the `Cases`/`Audit` tables)
 - Case list/detail views per Requirement 9.1: profile, checklist applied, gap analysis, outreach history, inbound responses, extraction confidence, status.
-- Approval queue UI for `NEEDS_APPROVAL` outreach (edit/approve/reject) (Requirement 5.3, 5.4).
+- Approve/edit/reject action for `NEEDS_APPROVAL` outreach (Requirement 5.3, 5.4) — the same lightweight view/script, not a dedicated approval-queue application.
 - Escalation reason surfaced explicitly per case (Requirement 9.2).
-- Filter/sort by status, risk, SLA age, owner (Requirement 9.4).
-- Auth via existing organization IdP (SAML/OIDC → Cognito).
+- Filter/sort by status and risk rating (Requirement 9.4).
+- Runs within the existing trusted environment for v1 — no separate SSO/IdP-backed web app. A production-grade dashboard with Cognito + bank IdP federation and multi-analyst role management is future work (see Open Items), not required for the training-project scope.
 
 ### 8. Audit & Notification Layer
 - Every component writes structured events to an **audit event bus** (EventBridge) → persisted to an append-only store (DynamoDB with stream → S3/Glacier for long-term retention, or Amazon QLDB if cryptographic verifiability is required).
 - Export function generates a case-scoped audit report (PDF/CSV) on demand (Requirement 10.3).
-- SNS/dashboard notifications to the responsible analyst on any case requiring action (Requirement 9.3).
+- SNS/insights-view notifications to the responsible analyst on any case requiring action (Requirement 9.3).
 
 ## Data Models
 
@@ -187,17 +187,17 @@ AuditEvent
 | Unsupported/unsafe attachment | Quarantine, do not process, notify analyst (Req 6.7, 11.4) |
 | Uncorrelated inbound email | Route to `ManualTriageQueue` (Req 6.3) |
 | KYC record update fails | Retry per policy → alert analyst on exhaustion (Req 8.3) |
-| Email bounce/delivery failure | Update `delivery_status`, surface on dashboard, do not silently retry indefinitely |
+| Email bounce/delivery failure | Update `delivery_status`, surface on insights view, do not silently retry indefinitely |
 | Follow-up cycle limit reached | Force escalation to analyst (Req 7.4) |
 | SLA breach | Force escalation regardless of automation state (Req 12.3) |
 
-All escalation paths converge on the same mechanism: set `Case.status = ESCALATED` (or a review sub-state), write `escalation_reason`, emit SNS notification, surface on dashboard. This keeps exception handling uniform and easy to audit.
+All escalation paths converge on the same mechanism: set `Case.status = ESCALATED` (or a review sub-state), write `escalation_reason`, emit SNS notification, surface on the insights view. This keeps exception handling uniform and easy to audit.
 
 ## Security
 
 - **Encryption:** KMS-encrypted S3 buckets and DynamoDB tables; TLS in transit everywhere (Req 11.1).
-- **Access control:** IAM least-privilege per Lambda/agent role; dashboard access via Cognito + organization IdP federation, role-based (analyst vs. compliance-admin) (Req 11.2).
-- **LLM boundary:** Bedrock models used within the AWS account's VPC/PrivateLink boundary; no data sent to non-approved external APIs (Req 11.3). Confirm with the organization's model-risk/compliance team which Bedrock models are approved for PII processing before implementation.
+- **Access control:** IAM least-privilege per Lambda/agent role (Req 11.2). The v1 lightweight insights view runs within the existing trusted environment; Cognito + bank IdP federation with role-based access (analyst vs. compliance-admin) is deferred to the production dashboard (see Open Items).
+- **LLM boundary:** Bedrock models used within the AWS account's VPC/PrivateLink boundary; no data sent to non-approved external APIs (Req 11.3). Confirm with the bank's model-risk/compliance team which Bedrock models are approved for PII processing before implementation.
 - **Attachment safety:** malware scan + type/size allowlist before any parsing (Req 11.4).
 - **Template constraint on generation:** outbound customer emails are template-bounded (see Component 4) specifically to reduce prompt-injection and hallucination risk in a regulated, customer-facing channel — this is both a security and compliance control.
 - **Prompt injection consideration:** inbound email/attachment content is treated as untrusted input to the Inbound Analysis Agent; extraction/classification outputs are validated deterministically (Component 6) before any KYC record write, so LLM output never directly mutates the system of record without a rules-based check.
@@ -215,5 +215,6 @@ All escalation paths converge on the same mechanism: set `Case.status = ESCALATE
 1. Identity of the specific "KYC system of record" and its API/integration contract (assumed generic adapter above).
 2. Approved Bedrock model(s) for PII-bearing workloads — pending model-risk approval.
 3. Definition of "standard case" auto-send criteria — proposed in this design but must be compliance-approved before enabling Requirement 5.1 autonomy.
-4. Whether QLDB (cryptographically verifiable ledger) is required for audit, or DynamoDB+S3 append-only pattern is sufficient for regulatory needs — depends on the organization's audit standards.
+4. Whether QLDB (cryptographically verifiable ledger) is required for audit, or DynamoDB+S3 append-only pattern is sufficient for regulatory needs — depends on the bank's audit standards.
 5. Multi-language template coverage scope (Requirement 4.4) — which languages are in scope for v1.
+6. When/whether to build the production-grade Analyst Dashboard (Cognito + bank IdP federation, role-based multi-analyst access) — deferred beyond the v1 lightweight insights view; timing depends on pilot outcomes and analyst headcount using the system.
