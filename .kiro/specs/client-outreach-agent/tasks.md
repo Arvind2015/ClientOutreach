@@ -116,6 +116,9 @@
   - [ ] 9.4 Penetration-test/review attachment handling pipeline (malware scan bypass attempts, oversized/malformed files)
     - _Requirements: 11.4_
 
+- [ ] 9.5 Load-test concurrent case processing (volume spike simulation) and validate inbound-triage latency target; confirm capacity alerting fires before throttling causes silent backlog
+    - _Requirements: 13.1, 13.2, 13.3, 13.4_
+
 - [ ] 10. Pilot rollout
   - [ ] 10.1 Run shadow-mode pilot: agent drafts and classifies but all sends/updates require analyst approval, to calibrate standard-case criteria and confidence thresholds
     - _Requirements: 5.1, 6.6_
