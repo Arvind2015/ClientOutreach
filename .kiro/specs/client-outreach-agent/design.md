@@ -196,6 +196,13 @@ AuditEvent
 
 All escalation paths converge on the same mechanism: set `Case.status = ESCALATED` (or a review sub-state), write `escalation_reason`, emit SNS notification, surface on the insights view. This keeps exception handling uniform and easy to audit.
 
+## Performance and Scalability
+
+- **Case isolation:** each case is a distinct Step Functions execution with its own DynamoDB item (`case_id` partition key) and its own audit-event stream — concurrent cases share no mutable in-memory state, satisfying Requirement 13.1.
+- **Horizontal scale:** Lambda concurrency and Step Functions executions scale out automatically with volume (subject to configured account concurrency limits); DynamoDB tables use on-demand or auto-scaled provisioned capacity to absorb campaign-driven spikes (Requirement 13.3).
+- **Inbound triage latency:** the SES → S3 → EventBridge → Lambda path for inbound mail is designed for sub-minute dispatch; end-to-end triage/correlation is targeted at minutes, not hours (Requirement 13.2). This target should be validated under load during the pilot.
+- **Capacity alerting:** CloudWatch alarms on Lambda throttling, Step Functions execution limits, and DynamoDB throttled requests notify operators before volume silently backs up (Requirement 13.4).
+
 ## Security
 
 - **Encryption:** KMS-encrypted S3 buckets and DynamoDB tables; TLS in transit everywhere (Req 11.1).

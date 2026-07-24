@@ -144,3 +144,14 @@ Target stack: AWS-native (Bedrock Agents, Lambda, Amazon SES/WorkMail, S3, Dynam
 1. IF any automated step (retrieval, matching, generation, classification, extraction, validation, dispatch) encounters an error or low-confidence result THEN the system SHALL halt automated progression of that case and route it to analyst review with the relevant context.
 2. THE system SHALL NOT send more than one outreach email to the same client within a configurable minimum interval (default 5 business days), to avoid over-communication.
 3. WHEN a case has been open beyond a configurable SLA THEN the system SHALL escalate it to an analyst regardless of automation state. The SLA has two configurable thresholds: (a) customer response window — the time allowed for a customer to reply after an outreach email is sent (default 10 business days), after which the case is escalated; (b) overall case age — the maximum time a case may remain open before forced escalation regardless of state (default 30 business days). Both defaults must be confirmed with the compliance team before go-live.
+
+### Requirement 13: Scalability and Performance
+
+**User Story:** As a compliance owner, I want the agent to handle many client cases concurrently without cross-case interference or unacceptable delay, so that a remediation campaign can scale to the bank's full client population without degrading service.
+
+#### Acceptance Criteria
+
+1. THE system SHALL support concurrent processing of multiple client cases without state, data, or audit-log interference between cases.
+2. WHEN an inbound customer reply is received THEN the system SHALL triage and correlate it to its case within a target latency of minutes (default target, tunable per pilot), not hours.
+3. THE system SHALL scale case-processing throughput horizontally (e.g., additional Lambda concurrency / Step Functions executions) to absorb campaign-driven volume spikes without manual intervention.
+4. IF case volume approaches a configured throughput or concurrency limit THEN the system SHALL surface this to operators (e.g., via monitoring/alerting) rather than silently queuing or dropping cases.
