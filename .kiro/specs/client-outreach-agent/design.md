@@ -4,6 +4,8 @@
 
 The Client Outreach Agent is an event-driven, multi-agent system built on AWS that automates KYC remediation outreach. It is decomposed into five cooperating agents/services orchestrated by a case-state machine, backed by a rules engine for checklist logic, and gated by a hybrid human-approval layer for anything outside "standard case" bounds.
 
+The AI-driven agent components are hosted on **Amazon Bedrock AgentCore** (Runtime + Gateway + Memory). AgentCore Runtime executes agent logic and tool calls; AgentCore Gateway handles invocation routing from Step Functions and Lambda; AgentCore Memory provides persistent cross-conversation context for multi-day, multi-turn client cases. Business/lifecycle state (case status, SLA timers, follow-up counts) remains owned by the DynamoDB `Cases` table — these are separate concerns deliberately kept separate (see Component 1 and state ownership note below).
+
 Design principles:
 - **Deterministic where possible, generative where it adds value.** Checklist matching, validation rules, and approval-routing are deterministic (rules engine / code), not left to LLM judgment. LLMs are used for email drafting, free-text/attachment interpretation, and classification confidence scoring — exactly the parts that benefit from language understanding.
 - **Fail safe, not silent.** Any low-confidence or error condition halts automation for that case and escalates, per Requirement 12.
@@ -74,7 +76,18 @@ flowchart TB
 
 ### Why Step Functions as orchestrator (not a single monolithic agent)
 
-KYC remediation is a long-running, multi-day, multi-turn process (send → wait for reply → maybe follow up → wait again → close). A Step Functions state machine models this naturally as a case lifecycle with explicit wait states, retries, and escalation transitions, while each Bedrock Agent handles a bounded, well-defined cognitive task. This also satisfies Requirement 12 (fail-safe halts) and Requirement 10 (auditable state transitions) far more cleanly than an autonomous agent looping indefinitely.
+KYC remediation is a long-running, multi-day, multi-turn process (send → wait for reply → maybe follow up → wait again → close). A Step Functions state machine models this naturally as a case lifecycle with explicit wait states, retries, and escalation transitions, while each AgentCore agent handles a bounded, well-defined cognitive task. This also satisfies Requirement 12 (fail-safe halts) and Requirement 10 (auditable state transitions) far more cleanly than an autonomous agent looping indefinitely.
+
+### State ownership: DynamoDB Cases table vs AgentCore Memory
+
+These two stores are deliberately separate and own different things:
+
+| Store | Owns |
+|---|---|
+| DynamoDB `Cases` table | Business/lifecycle state: case status, SLA due date, follow-up count, escalation reason, SFN task token, gap analysis result. Queried by Step Functions, Lambda, and the analyst view. |
+| AgentCore Memory | Conversational context: what was communicated to this client, what they replied, what the agent understood across multiple email exchanges. Retrieved by AgentCore agents at invocation time to avoid reconstructing context from audit logs on every turn. |
+
+The Cases table is the source of truth for "where is this case in the process." AgentCore Memory is the source of truth for "what has been said and understood in this client conversation." Neither replaces the other.
 
 ## Components and Interfaces
 
@@ -86,7 +99,9 @@ Owns the case lifecycle state machine: `NEW → DATA_RETRIEVED → GAP_ANALYZED 
 - Enforces SLA timers (Requirement 12.3) via Step Functions wait states + EventBridge timeout rules.
 - **`AWAITING_RESPONSE` wait state:** implemented as a `.waitForTaskToken` Step Functions task. The task token is written to `Cases.sfn_task_token` when the state is entered and cleared on resume. The Inbound Analysis Agent uses this token to call `sfn:SendTaskSuccess`/`sfn:SendTaskFailure` and resume the case (see Component 5). The wait state has a heartbeat/timeout equal to the configurable customer-response window (default 10 business days, per Requirement 12.3); on timeout, the orchestrator transitions directly to `ESCALATED`.
 
-### 2. Retrieval Agent (Lambda + Bedrock Agent, tool-calling)
+### 2. Retrieval Agent (AgentCore Runtime + Gateway, tool-calling)
+- Hosted on **AgentCore Runtime**; invoked by Step Functions via **AgentCore Gateway**.
+- Uses **AgentCore Memory** to retain previously retrieved profile context for the client, avoiding redundant KYC source calls within a case lifecycle.
 - **Tool:** `get_kyc_profile(client_id)` — calls the KYC system of record's API/DB adapter.
 - Normalizes response into the canonical `KycProfile` schema (Requirement 1.3).
 - On failure: raises a typed error consumed by the orchestrator, which routes to analyst notification (Requirement 1.2) rather than retrying indefinitely.
@@ -98,7 +113,9 @@ Owns the case lifecycle state machine: `NEW → DATA_RETRIEVED → GAP_ANALYZED 
 - Falls back to `DEFAULT_BASELINE` ruleset + flags case `NEEDS_RULE_REVIEW` when no rule matches (Requirement 2.3).
 - **Matching Engine** (same component, separate function): diffs `KycProfile.documents/fields` against the resolved checklist, treating expired documents as missing (Requirement 3.2), and emits a structured `GapAnalysisResult`.
 
-### 4. Outreach Drafting Agent (Bedrock Agent)
+### 4. Outreach Drafting Agent (AgentCore Runtime + Gateway + Memory)
+- Hosted on **AgentCore Runtime**; invoked by Step Functions via **AgentCore Gateway**.
+- Uses **AgentCore Memory** to recall prior outreach history for this client (what was already requested, what tone/language was used, how many times contact has been made) — this context informs follow-up email tone and content without reconstructing it from audit logs each time.
 - **Input:** `GapAnalysisResult` + client profile (name, language preference, channel).
 - **Tool:** `render_template(template_id, variables)` — the agent selects an approved template from a template library (S3/DynamoDB) and populates variables; it does not free-generate the entire email body (Requirement 4.3). This bounds hallucination risk in a customer-facing regulated communication.
 - Attaches a unique `case_ref` token embedded in the subject line and a hidden header (`X-Case-Ref`) for reply correlation (Requirement 4.2, 6.2).
@@ -106,11 +123,12 @@ Owns the case lifecycle state machine: `NEW → DATA_RETRIEVED → GAP_ANALYZED 
 - `AUTO_SEND` → publishes to SES send Lambda. `NEEDS_APPROVAL` → writes to SQS approval queue, surfaced on the Analyst Insights View (Requirement 5.2, 9.2).
 - Enforces minimum re-contact interval per client (Requirement 12.2).
 
-### 5. Inbound Analysis Agent (Bedrock Agent, multimodal + tool-calling)
-- Triggered by SES receipt rule → S3 (raw email) → EventBridge → Lambda.
+### 5. Inbound Analysis Agent (AgentCore Runtime + Gateway + Memory, multimodal + tool-calling)
+- Hosted on **AgentCore Runtime**; triggered by SES receipt rule → S3 (raw email) → EventBridge → Lambda → **AgentCore Gateway**.
+- Uses **AgentCore Memory** to recall what was requested from this client and in what context, enabling more accurate attachment classification against the specific outstanding requirements for this case.
 - **Correlation step** (deterministic): match `X-Case-Ref` header / subject token / sender address to an open case (Requirement 6.2). No match → `ManualTriageQueue` (Requirement 6.3).
 - **Attachment safety gate** (deterministic, runs first): file-type allowlist (PDF/JPEG/PNG/DOCX), size limit, and malware scan (e.g., S3 + GuardDuty Malware Protection or ClamAV Lambda layer) before anything touches the LLM (Requirement 6.7, 11.4). Failing items are quarantined, never processed.
-- **Classification & extraction** (Bedrock multimodal / Textract for OCR): classifies each attachment against outstanding requirement types, extracts structured fields.
+- **Classification & extraction** (AgentCore Runtime multimodal agent / Textract for OCR): classifies each attachment against outstanding requirement types, extracts structured fields.
 - Confidence scoring on both classification and extraction; below threshold (configurable, default 0.75) → flagged `NEEDS_ANALYST_REVIEW` (Requirement 6.6).
 - **Orchestrator resume handoff:** The Case Orchestrator holds the `AWAITING_RESPONSE` wait state using a Step Functions task token (`.waitForTaskToken`), stored in the `Cases` table alongside the case record. Once the Inbound Analysis Agent completes correlation and initial triage, it calls `sfn:SendTaskSuccess` (or `sfn:SendTaskFailure` on an unrecoverable error) with the stored task token to resume the state machine. This explicit token-passing pattern ensures the orchestrator — not the agent — owns state transitions and prevents a case from getting stuck if the agent Lambda exits before signalling back. The task token is scoped per case and expires after the `AWAITING_RESPONSE` timeout window (see Component 1, SLA timers, and Requirement 12.3).
 
@@ -121,12 +139,20 @@ Owns the case lifecycle state machine: `NEW → DATA_RETRIEVED → GAP_ANALYZED 
 - Triggers re-run of Matching Engine to determine remaining gaps → feeds follow-up loop (Requirement 7.1) or case closure (Requirement 7.3, 3.4).
 - Enforces `max_follow_up_cycles` (default 3) and escalates on limit (Requirement 7.4).
 
-### 7. Analyst Insights View (lightweight — e.g., a script, notebook, or minimal read-only page reading directly from the `Cases`/`Audit` tables)
+### 7. Analyst Insights View (v1: Lambda-backed script; fast-follow: Amplify + Cognito web app)
+
+**v1 — Lambda-backed script (current scope):**
+A lightweight Python script or notebook that invokes a set of Lambda functions directly (via AWS CLI / boto3) to read from the `Cases` and `Audit` tables and write approval/rejection actions back to the SQS queue. No auth layer, no frontend hosting pipeline — runs within the existing trusted analyst environment. Lambda functions backing the script are the same functions Amplify will call in the fast-follow, so no backend work is thrown away.
+
+**Fast-follow — Amplify + Cognito (post first end-to-end demo):**
+Once the pipeline is proven end-to-end and demoable, Stream 6 upgrades the frontend to an Amplify-hosted React app with Cognito user pool auth. The Lambda backend is unchanged; the upgrade is purely the frontend layer (Amplify hosting, Cognito auth flow, React UI replacing the script). This is the deliberate sequence: get everything working and integrated first with the cheapest possible frontend, then replace just the frontend layer once the backend is stable.
+
+**v1 scope (what gets built now):**
 - Case list/detail views per Requirement 9.1: profile, checklist applied, gap analysis, outreach history, inbound responses, extraction confidence, status.
-- Approve/edit/reject action for `NEEDS_APPROVAL` outreach (Requirement 5.3, 5.4) — the same lightweight view/script, not a dedicated approval-queue application.
+- Approve/edit/reject action for `NEEDS_APPROVAL` outreach (Requirement 5.3, 5.4) — same Lambda-backed script, writes decision back to SQS approval queue.
 - Escalation reason surfaced explicitly per case (Requirement 9.2).
 - Filter/sort by status and risk rating (Requirement 9.4).
-- Runs within the existing trusted environment for v1 — no separate SSO/IdP-backed web app. A production-grade dashboard with Cognito + bank IdP federation and multi-analyst role management is future work (see Open Items), not required for the training-project scope.
+- Runs within the existing trusted environment for v1 — no separate auth layer. Amplify + Cognito frontend is the deliberate fast-follow once end-to-end pipeline is demoable (see Open Item #6).
 
 ### 8. Audit & Notification Layer
 - Every component writes structured events to an **audit event bus** (EventBridge) → persisted to an append-only store (DynamoDB with stream → S3/Glacier for long-term retention, or Amazon QLDB if cryptographic verifiability is required).
@@ -206,8 +232,8 @@ All escalation paths converge on the same mechanism: set `Case.status = ESCALATE
 ## Security
 
 - **Encryption:** KMS-encrypted S3 buckets and DynamoDB tables; TLS in transit everywhere (Req 11.1).
-- **Access control:** IAM least-privilege per Lambda/agent role (Req 11.2). The v1 lightweight insights view runs within the existing trusted environment; Cognito + bank IdP federation with role-based access (analyst vs. compliance-admin) is deferred to the production dashboard (see Open Items).
-- **LLM boundary:** Bedrock models used within the AWS account's VPC/PrivateLink boundary; no data sent to non-approved external APIs (Req 11.3). Confirm with the bank's model-risk/compliance team which Bedrock models are approved for PII processing before implementation.
+- **Access control:** IAM least-privilege per Lambda/agent role (Req 11.2). The v1 analyst view runs within the existing trusted environment with no separate auth layer. The deliberate fast-follow is a Cognito user pool-backed Amplify app (no bank IdP required for this step — just standard Cognito auth). Full bank IdP federation with role-based multi-analyst access is further future work beyond the fast-follow (see Open Items).
+- **LLM boundary:** AgentCore agents run within the AWS account's VPC/PrivateLink boundary via AgentCore Runtime and Gateway; no data sent to non-approved external APIs (Req 11.3). Confirm with the bank's model-risk/compliance team which Bedrock models are approved for PII processing before implementation.
 - **Attachment safety:** malware scan + type/size allowlist before any parsing (Req 11.4).
 - **Template constraint on generation:** outbound customer emails are template-bounded (see Component 4) specifically to reduce prompt-injection and hallucination risk in a regulated, customer-facing channel — this is both a security and compliance control.
 - **Prompt injection consideration:** inbound email/attachment content is treated as untrusted input to the Inbound Analysis Agent; extraction/classification outputs are validated deterministically (Component 6) before any KYC record write, so LLM output never directly mutates the system of record without a rules-based check.
@@ -227,4 +253,4 @@ All escalation paths converge on the same mechanism: set `Case.status = ESCALATE
 3. Definition of "standard case" auto-send criteria — proposed in this design but must be compliance-approved before enabling Requirement 5.1 autonomy.
 4. Whether QLDB (cryptographically verifiable ledger) is required for audit, or DynamoDB+S3 append-only pattern is sufficient for regulatory needs — depends on the bank's audit standards.
 5. Multi-language template coverage scope (Requirement 4.4) — which languages are in scope for v1.
-6. When/whether to build the production-grade Analyst Dashboard (Cognito + bank IdP federation, role-based multi-analyst access) — deferred beyond the v1 lightweight insights view; timing depends on pilot outcomes and analyst headcount using the system.
+6. Amplify + Cognito analyst dashboard (fast-follow): v1 uses a Lambda-backed script for the analyst view. The deliberate fast-follow is to replace the script frontend with an Amplify-hosted React app backed by Cognito user pool auth, reusing the same Lambda functions. Timing: after first end-to-end demo proves the pipeline. Full production dashboard (bank IdP federation, multi-analyst role management) is further future work beyond the fast-follow.

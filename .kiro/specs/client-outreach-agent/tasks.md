@@ -13,11 +13,11 @@
     - _Requirements: 10.1, 10.2_
 
 - [ ] 2. Build KYC Retrieval Agent
-  - [ ] 2.1 Implement `get_kyc_profile` adapter/tool against the KYC system of record (mock/stub interface first if source system access is pending)
+  - [ ] 2.1 Implement `get_kyc_profile` adapter/tool against the KYC system of record (mock/stub interface first if source system access is pending); configure as an AgentCore Runtime agent with AgentCore Gateway invocation entry point
     - _Requirements: 1.1_
   - [ ] 2.2 Implement normalization into canonical KycProfile schema
     - _Requirements: 1.3_
-  - [ ] 2.3 Implement 24h TTL cache read/write in DynamoDB
+  - [ ] 2.3 Implement 24h TTL cache read/write in DynamoDB; configure AgentCore Memory session for the client so retrieval context persists across the case lifecycle
     - _Requirements: 1.4_
   - [ ] 2.4 Implement failure handling: retry policy, then case-blocking + analyst notification on exhaustion
     - _Requirements: 1.2_
@@ -37,36 +37,40 @@
 - [ ] 4. Build Outreach Drafting Agent and dispatch pipeline
   - [ ] 4.1 Build approved template library (S3/DynamoDB) with variable slots; coordinate compliance sign-off on template content
     - _Requirements: 4.3_
-  - [ ] 4.2 Implement `render_template` tool: populate template variables (client name, itemized requirements, deadline, submission instructions) from GapAnalysisResult + KycProfile
+  - [ ] 4.2 Configure Outreach Drafting Agent on AgentCore Runtime with AgentCore Gateway invocation entry point; initialise AgentCore Memory session keyed by `client_id` to persist outreach history (what was requested, tone, contact count) across follow-up cycles
+    - _Requirements: 4.1_
+  - [ ] 4.3 Implement `render_template` tool: populate template variables (client name, itemized requirements, deadline, submission instructions) from GapAnalysisResult + KycProfile
     - _Requirements: 4.1, 4.4_
-  - [ ] 4.3 Implement unique case reference generation and embedding (subject token + `X-Case-Ref` header)
+  - [ ] 4.4 Implement unique case reference generation and embedding (subject token + `X-Case-Ref` header)
     - _Requirements: 4.2_
-  - [ ] 4.4 Implement deterministic standard-case classifier (risk rating, follow-up count, template match) producing AUTO_SEND / NEEDS_APPROVAL
+  - [ ] 4.5 Implement deterministic standard-case classifier (risk rating, follow-up count, template match) producing AUTO_SEND / NEEDS_APPROVAL
     - _Requirements: 5.1, 5.2_
-  - [ ] 4.5 Implement SES send path for AUTO_SEND, including delivery status tracking (sent/bounced/failed)
+  - [ ] 4.6 Implement SES send path for AUTO_SEND, including delivery status tracking (sent/bounced/failed)
     - _Requirements: 5.1, 5.5_
-  - [ ] 4.6 Implement SQS approval queue write path for NEEDS_APPROVAL, and approve/reject/edit handling with audit logging of approver identity
+  - [ ] 4.7 Implement SQS approval queue write path for NEEDS_APPROVAL, and approve/reject/edit handling with audit logging of approver identity
     - _Requirements: 5.2, 5.3, 5.4_
-  - [ ] 4.7 Implement minimum re-contact interval enforcement per client
+  - [ ] 4.8 Implement minimum re-contact interval enforcement per client
     - _Requirements: 12.2_
-  - [ ] 4.8 Write unit/integration tests for template rendering, dispatch routing decisions, and approval flow
+  - [ ] 4.9 Write unit/integration tests for template rendering, dispatch routing decisions, and approval flow
 
 - [ ] 5. Build Inbound Analysis Agent
-  - [ ] 5.1 Configure SES receiving + S3 storage of raw inbound email, triggering Lambda via EventBridge
+  - [ ] 5.1 Configure SES receiving + S3 storage of raw inbound email, triggering Lambda via EventBridge → AgentCore Gateway → AgentCore Runtime agent
     - _Requirements: 6.1_
   - [ ] 5.2 Implement case correlation logic (case ref header/subject token/sender match) with ManualTriageQueue fallback
     - _Requirements: 6.2, 6.3_
-  - [ ] 5.3 Implement attachment safety gate: file-type allowlist, size limit, malware scan, quarantine path
-    - _Requirements: 6.7, 11.4_
-  - [ ] 5.4 Implement attachment classification against outstanding requirement types (Bedrock multimodal)
+  - [ ] 5.3 Configure AgentCore Memory session for the client so the Inbound Analysis Agent recalls what was requested and in what context, enabling accurate attachment classification against the specific outstanding requirements
     - _Requirements: 6.4_
-  - [ ] 5.5 Implement data/field extraction from classified attachments (OCR/Textract) with confidence scoring
+  - [ ] 5.4 Implement attachment safety gate: file-type allowlist, size limit, malware scan, quarantine path
+    - _Requirements: 6.7, 11.4_
+  - [ ] 5.5 Implement attachment classification against outstanding requirement types (AgentCore Runtime multimodal agent)
+    - _Requirements: 6.4_
+  - [ ] 5.6 Implement data/field extraction from classified attachments (OCR/Textract) with confidence scoring
     - _Requirements: 6.5_
-  - [ ] 5.6 Implement confidence-threshold gate routing low-confidence items to analyst review
+  - [ ] 5.7 Implement confidence-threshold gate routing low-confidence items to analyst review
     - _Requirements: 6.6_
-  - [ ] 5.6a Store classification and extraction confidence thresholds as runtime-configurable parameters (e.g., SSM Parameter Store or a `Config` DynamoDB table entry), not as code constants. Provide separate threshold keys for classification confidence and extraction confidence so they can be tuned independently during the shadow-mode pilot (task 10.1) without a code deployment.
+  - [ ] 5.7a Store classification and extraction confidence thresholds as runtime-configurable parameters (e.g., SSM Parameter Store or a `Config` DynamoDB table entry), not as code constants. Provide separate threshold keys for classification confidence and extraction confidence so they can be tuned independently during the shadow-mode pilot (task 10.1) without a code deployment.
     - _Requirements: 6.6, 10.1_
-  - [ ] 5.7 Write tests using a golden set of sample emails/attachments (valid docs, expired docs, wrong type, poor scan quality, unsupported/malicious file types)
+  - [ ] 5.8 Write tests using a golden set of sample emails/attachments (valid docs, expired docs, wrong type, poor scan quality, unsupported/malicious file types)
 
 - [ ] 6. Build Validation & Update Agent and follow-up loop
   - [ ] 6.1 Implement deterministic validation of extracted fields against checklist requirement (expiry, name match, completeness)
@@ -96,17 +100,19 @@
     - _Requirements: 12.1_
   - [ ] 7.5 Write end-to-end integration test simulating a full case lifecycle against mocked KYC source and sandbox mailbox
 
-- [ ] 8. Build Analyst Insights View (lightweight — script/notebook/simple read-only page; no auth system for v1)
-  - [ ] 8.1 Implement case list + detail view (profile, checklist, gap analysis, outreach history, inbound responses, confidence scores, status, escalation reason), filterable by status and risk rating
+- [ ] 8. Build Analyst Insights View (v1: Lambda-backed script; fast-follow: Amplify + Cognito web app)
+  - [ ] 8.1 Implement Lambda functions for case list + detail view (profile, checklist, gap analysis, outreach history, inbound responses, confidence scores, status, escalation reason), filterable by status and risk rating. Expose these as the backend that both the v1 script and the future Amplify app will call.
     - _Requirements: 9.1, 9.2, 9.4_
-  - [ ] 8.2 Implement approve/edit/reject action for queued outreach emails (same lightweight view/script)
+  - [ ] 8.2 Implement Lambda function for approve/edit/reject action on queued outreach emails; writes decision back to SQS approval queue with approver identity for audit log.
     - _Requirements: 5.3, 5.4_
   - [ ] 8.3 Implement analyst notification: provision an SNS topic and subscribe the shared analyst mailbox (e.g., `kyc-outreach-alerts@<bank-domain>`) to it. Publish to this topic whenever a case transitions to `PENDING_APPROVAL`, `NEEDS_ANALYST_REVIEW`, `ESCALATED`, or `BLOCKED`. SNS topic ARN to be created in task 1.1 infrastructure and passed as an environment variable to all publishing components. In-app/browser notifications and per-analyst routing are deferred to future production dashboard work.
     - _Requirements: 9.3_
-  - [ ] 8.4 Implement audit trail export (per-case) for review
+  - [ ] 8.4 Implement audit trail export Lambda (per-case) for review; wire into v1 script.
     - _Requirements: 10.3_
-  - [ ] 8.5 (Future / out of v1 scope) Production dashboard: Cognito + bank IdP auth, role-based multi-analyst access, checklist rule management UI
-    - _Requirements: 2.2, 2.4, 11.2_
+  - [ ] 8.5 Build v1 analyst script: a lightweight Python script (boto3/CLI-invoked) that calls the Lambda functions from tasks 8.1–8.4 to display case list/detail and submit approve/reject actions. No auth layer — runs within trusted analyst environment.
+    - _Requirements: 9.1, 5.3_
+  - [ ] 8.6 Fast-follow — Amplify + Cognito dashboard: after first end-to-end demo, replace the v1 script frontend with an Amplify-hosted React app backed by Cognito user pool auth. Lambda backend from tasks 8.1–8.4 is unchanged — the upgrade is the frontend layer only. Full bank IdP federation and multi-analyst role management are further future work beyond this fast-follow.
+    - _Requirements: 9.1, 11.2_
 
 - [ ] 9. Security hardening pass
   - [ ] 9.1 Verify encryption at rest (KMS) and in transit (TLS) across all data stores and integrations
