@@ -1,0 +1,210 @@
+name: Deploy Lambda packages to S3
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  AWS_REGION: eu-central-1
+  DEPLOY_BUCKET: ${{ secrets.DEPLOY_BUCKET_NAME }}
+
+jobs:
+  detect-changes:
+    name: Detect changed streams
+    runs-on: ubuntu-latest
+    outputs:
+      shared:  ${{ steps.filter.outputs.shared }}
+      stream2: ${{ steps.filter.outputs.stream2 }}
+      stream3: ${{ steps.filter.outputs.stream3 }}
+      stream4: ${{ steps.filter.outputs.stream4 }}
+      stream5: ${{ steps.filter.outputs.stream5 }}
+      stream6: ${{ steps.filter.outputs.stream6 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2          # need previous commit to diff against
+
+      - name: Filter changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            shared:
+              - 'src/shared/**'
+            stream2:
+              - 'src/stream2/**'
+            stream3:
+              - 'src/stream3/**'
+            stream4:
+              - 'src/stream4/**'
+            stream5:
+              - 'src/stream5/**'
+            stream6:
+              - 'src/stream6/**'
+
+  deploy:
+    name: Package and upload changed functions
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    # Only run if at least one stream changed
+    if: |
+      needs.detect-changes.outputs.shared  == 'true' ||
+      needs.detect-changes.outputs.stream2 == 'true' ||
+      needs.detect-changes.outputs.stream3 == 'true' ||
+      needs.detect-changes.outputs.stream4 == 'true' ||
+      needs.detect-changes.outputs.stream5 == 'true' ||
+      needs.detect-changes.outputs.stream6 == 'true'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      # ── Shared Lambda layer ──────────────────────────────────────────────
+      - name: Package and upload shared common layer
+        if: needs.detect-changes.outputs.shared == 'true'
+        run: |
+          cd src/shared/common-layer
+          pip install -r requirements.txt -t python/ --quiet
+          zip -r ../../../common-layer.zip python/ *.py
+          cd ../../..
+          aws s3 cp common-layer.zip \
+            s3://$DEPLOY_BUCKET/shared/common-layer/latest/common-layer.zip
+          echo "Uploaded shared/common-layer"
+
+      # ── Stream 2 ─────────────────────────────────────────────────────────
+      - name: Package and upload stream2 functions
+        if: needs.detect-changes.outputs.stream2 == 'true'
+        run: |
+          for fn in get-kyc-profile run-gap-analysis seed-rules; do
+            dir="src/stream2/$fn"
+            if [ -d "$dir" ]; then
+              cd "$dir"
+              [ -f requirements.txt ] && pip install -r requirements.txt -t . --quiet
+              zip -r "../../../${fn}.zip" . -x "*.pyc" -x "__pycache__/*"
+              cd ../../..
+              aws s3 cp "${fn}.zip" \
+                "s3://$DEPLOY_BUCKET/stream2/$fn/latest/${fn}.zip"
+              echo "Uploaded stream2/$fn"
+            fi
+          done
+
+      # ── Stream 3 ─────────────────────────────────────────────────────────
+      - name: Package and upload stream3 functions
+        if: needs.detect-changes.outputs.stream3 == 'true'
+        run: |
+          for fn in draft-outreach-email send-outreach-email handle-approval-action; do
+            dir="src/stream3/$fn"
+            if [ -d "$dir" ]; then
+              cd "$dir"
+              [ -f requirements.txt ] && pip install -r requirements.txt -t . --quiet
+              zip -r "../../../${fn}.zip" . -x "*.pyc" -x "__pycache__/*"
+              cd ../../..
+              aws s3 cp "${fn}.zip" \
+                "s3://$DEPLOY_BUCKET/stream3/$fn/latest/${fn}.zip"
+              echo "Uploaded stream3/$fn"
+            fi
+          done
+
+      - name: Upload stream3 email templates
+        if: needs.detect-changes.outputs.stream3 == 'true'
+        run: |
+          if [ -d "src/stream3/templates" ]; then
+            aws s3 sync src/stream3/templates/ \
+              "s3://$DEPLOY_BUCKET/stream3/templates/" \
+              --delete
+            echo "Synced stream3/templates"
+          fi
+
+      # ── Stream 4 ─────────────────────────────────────────────────────────
+      - name: Package and upload stream4 functions
+        if: needs.detect-changes.outputs.stream4 == 'true'
+        run: |
+          for fn in receive-inbound-email analyse-attachment triage-unmatched-email; do
+            dir="src/stream4/$fn"
+            if [ -d "$dir" ]; then
+              cd "$dir"
+              [ -f requirements.txt ] && pip install -r requirements.txt -t . --quiet
+              zip -r "../../../${fn}.zip" . -x "*.pyc" -x "__pycache__/*"
+              cd ../../..
+              aws s3 cp "${fn}.zip" \
+                "s3://$DEPLOY_BUCKET/stream4/$fn/latest/${fn}.zip"
+              echo "Uploaded stream4/$fn"
+            fi
+          done
+
+      # ── Stream 5 ─────────────────────────────────────────────────────────
+      - name: Package and upload stream5 functions
+        if: needs.detect-changes.outputs.stream5 == 'true'
+        run: |
+          for fn in handle-escalation process-follow-up export-audit-trail; do
+            dir="src/stream5/$fn"
+            if [ -d "$dir" ]; then
+              cd "$dir"
+              [ -f requirements.txt ] && pip install -r requirements.txt -t . --quiet
+              zip -r "../../../${fn}.zip" . -x "*.pyc" -x "__pycache__/*"
+              cd ../../..
+              aws s3 cp "${fn}.zip" \
+                "s3://$DEPLOY_BUCKET/stream5/$fn/latest/${fn}.zip"
+              echo "Uploaded stream5/$fn"
+            fi
+          done
+
+      - name: Package and upload stream5 mock functions
+        if: needs.detect-changes.outputs.stream5 == 'true'
+        run: |
+          for fn in mock-get-kyc-profile mock-run-gap-analysis mock-draft-outreach mock-send-outreach mock-analyse-attachment mock-validate-and-update; do
+            dir="src/stream5/mocks/$fn"
+            if [ -d "$dir" ]; then
+              cd "$dir"
+              zip -r "../../../../${fn}.zip" . -x "*.pyc" -x "__pycache__/*"
+              cd ../../../..
+              aws s3 cp "${fn}.zip" \
+                "s3://$DEPLOY_BUCKET/stream5/mocks/$fn/latest/${fn}.zip"
+              echo "Uploaded stream5/mocks/$fn"
+            fi
+          done
+
+      - name: Upload stream5 state machine definition
+        if: needs.detect-changes.outputs.stream5 == 'true'
+        run: |
+          if [ -f "src/stream5/state-machine/state-machine.json" ]; then
+            aws s3 cp src/stream5/state-machine/state-machine.json \
+              "s3://$DEPLOY_BUCKET/stream5/state-machine/latest/state-machine.json"
+            echo "Uploaded stream5/state-machine"
+          fi
+
+      # ── Stream 6 ─────────────────────────────────────────────────────────
+      - name: Package and upload stream6 analyst view
+        if: needs.detect-changes.outputs.stream6 == 'true'
+        run: |
+          dir="src/stream6/analyst-view"
+          if [ -d "$dir" ]; then
+            cd "$dir"
+            [ -f requirements.txt ] && pip install -r requirements.txt -t . --quiet
+            zip -r "../../../analyst-view.zip" . -x "*.pyc" -x "__pycache__/*"
+            cd ../../..
+            aws s3 cp analyst-view.zip \
+              "s3://$DEPLOY_BUCKET/stream6/analyst-view/latest/analyst-view.zip"
+            echo "Uploaded stream6/analyst-view"
+          fi
+
+      # ── infra-config.json ─────────────────────────────────────────────────
+      - name: Upload infra-config if changed
+        run: |
+          if [ -f "config/infra-config.json" ]; then
+            aws s3 cp config/infra-config.json \
+              "s3://$DEPLOY_BUCKET/config/infra-config.json"
+            echo "Uploaded config/infra-config.json"
+          fi
