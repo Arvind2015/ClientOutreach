@@ -18,10 +18,10 @@ Use this table to find the detailed step-by-step sub-tasks for your stream.
 |--------|-------|-------------------|
 | Stream 1 — Infrastructure & Environment | Person A | Task 1 (1.1, 1.2, 1.3) |
 | Stream 2 — KYC Data & Checklist Rules | Person B | Task 2 (2.1–2.5), Task 3 (3.1–3.5) |
-| Stream 3 — Outreach Generation & Sending | Person C | Task 4 (4.1–4.8) |
+| Stream 3 — Outreach Generation & Sending | Person C | Task 4 (4.1–4.9) |
 | Stream 4 — Inbound Email & Document Reading | Person D | Task 5 (5.1–5.7), Task 6 (6.1–6.3) |
 | Stream 5 — Case Flow & Follow-Up Logic | Person E | Task 6 (6.4–6.8), Task 7 (7.1–7.5) |
-| Stream 6 — Analyst Insights View | Person F | Task 8 (8.1–8.5) |
+| Stream 6 — Analyst Insights View | Person F | Task 8 (8.1–8.6) |
 | All streams | Everyone | Tasks 9 (security hardening) and 10 (pilot rollout) |
 
 ---
@@ -78,11 +78,17 @@ The "glue" that ties everything into one process per client.
 - Build the audit log (record every automated decision), and support exporting a case's audit trail on request
 
 ## Stream 6 — Analyst Insights View (Owner: Person F)
-A lightweight "human view" into the system — a script, notebook, or simple read-only page is enough; no login/auth system needed for this project. A full production dashboard (SSO, multi-analyst roles) is future work, not part of this build.
-- Case list + detail view (status, what's missing, history, why it was escalated)
-- Simple approve/edit/reject action for a drafted email (can be the same view/script)
-- Basic notifications when a case needs attention
-- **Notification channel (v1 — Person F owns wiring):** SNS topic → email subscription to a shared analyst mailbox (e.g., `kyc-outreach-alerts@<bank-domain>`). Every case that transitions to `PENDING_APPROVAL`, `NEEDS_ANALYST_REVIEW`, `ESCALATED`, or `BLOCKED` publishes to this topic. Person F provisions the SNS topic and email subscription as part of their stream (coordinate with Stream 1 for the topic ARN to be created alongside other infrastructure). Per-analyst routing and in-app/browser notifications are deferred to the production dashboard.
+A Lambda-backed analyst script for v1, with Amplify + Cognito as a deliberate fast-follow after the first end-to-end demo. The v1 script calls Lambda functions directly (boto3/CLI); those same Lambda functions are what the Amplify app calls later — no backend work is thrown away, only the frontend layer changes.
+
+**v1 scope (build this first):**
+- Build Lambda functions for case list/detail view, approve/reject/edit action, audit trail export, and analyst notifications (SNS wiring)
+- Build a lightweight Python script that invokes those Lambdas to give analysts a working interface immediately — no auth layer, runs in the trusted analyst environment
+- Wire SNS notifications so analysts are alerted when cases need attention
+
+**Fast-follow (after first end-to-end demo):**
+- Replace the script frontend with an Amplify-hosted React app backed by Cognito user pool auth
+- Lambda backend is unchanged — upgrade is purely the frontend layer
+- Full bank IdP federation and multi-analyst role management are further future work
 
 ---
 
