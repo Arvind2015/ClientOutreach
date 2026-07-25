@@ -1,0 +1,343 @@
+{
+  "Comment": "KYC Client Outreach Agent — Case Orchestrator. Full case lifecycle: NEW → DATA_RETRIEVED → GAP_ANALYZED → OUTREACH_DRAFTED → [AUTO_SENT | PENDING_APPROVAL] → AWAITING_RESPONSE → RESPONSE_RECEIVED → [COMPLIANT | FOLLOW_UP_NEEDED | ESCALATED] → CLOSED",
+  "StartAt": "RetrieveKycProfile",
+  "States": {
+
+    "RetrieveKycProfile": {
+      "Type": "Task",
+      "Comment": "Stream 2 — Retrieval Agent. Fetches KYC profile from system of record.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${GetKycProfileFunctionArn}",
+        "Payload": {
+          "case_id.$": "$.case_id",
+          "client_id.$": "$.client_id"
+        }
+      },
+      "ResultSelector": { "kyc_profile.$": "$.Payload" },
+      "ResultPath": "$.kyc_profile",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "EscalateWithCause",
+          "ResultPath": "$.error",
+          "Comment": "KYC source unavailable after retries — escalate (Req 1.2)"
+        }
+      ],
+      "Next": "RunGapAnalysis"
+    },
+
+    "RunGapAnalysis": {
+      "Type": "Task",
+      "Comment": "Stream 2 — Matching Engine. Diffs KYC profile against checklist rules.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${RunGapAnalysisFunctionArn}",
+        "Payload": {
+          "case_id.$": "$.case_id",
+          "client_id.$": "$.client_id",
+          "kyc_profile.$": "$.kyc_profile"
+        }
+      },
+      "ResultSelector": { "gap_analysis.$": "$.Payload" },
+      "ResultPath": "$.gap_analysis",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "EscalateWithCause",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "CheckForGaps"
+    },
+
+    "CheckForGaps": {
+      "Type": "Choice",
+      "Comment": "If no gaps found, close the case immediately without outreach (Req 3.4).",
+      "Choices": [
+        {
+          "Variable": "$.gap_analysis.gap_analysis.has_gaps",
+          "BooleanEquals": false,
+          "Next": "CloseCase"
+        }
+      ],
+      "Default": "DraftOutreach"
+    },
+
+    "DraftOutreach": {
+      "Type": "Task",
+      "Comment": "Stream 3 — Outreach Drafting Agent via AgentCore Gateway.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${DraftOutreachEmailFunctionArn}",
+        "Payload": {
+          "case_id.$": "$.case_id",
+          "client_id.$": "$.client_id",
+          "gap_analysis.$": "$.gap_analysis"
+        }
+      },
+      "ResultSelector": { "outreach.$": "$.Payload" },
+      "ResultPath": "$.outreach",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "EscalateWithCause",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "DispatchOutreach"
+    },
+
+    "DispatchOutreach": {
+      "Type": "Choice",
+      "Comment": "Route based on standard-case classifier output: AUTO_SEND or NEEDS_APPROVAL (Req 5.1, 5.2).",
+      "Choices": [
+        {
+          "Variable": "$.outreach.outreach.dispatch_mode",
+          "StringEquals": "AUTO_SEND",
+          "Next": "SendOutreachEmail"
+        },
+        {
+          "Variable": "$.outreach.outreach.dispatch_mode",
+          "StringEquals": "NEEDS_APPROVAL",
+          "Next": "WaitForApproval"
+        }
+      ],
+      "Default": "WaitForApproval"
+    },
+
+    "SendOutreachEmail": {
+      "Type": "Task",
+      "Comment": "Stream 3 — SES send path for AUTO_SEND cases.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${SendOutreachEmailFunctionArn}",
+        "Payload": {
+          "case_id.$": "$.case_id",
+          "outreach.$": "$.outreach"
+        }
+      },
+      "ResultSelector": { "send_result.$": "$.Payload" },
+      "ResultPath": "$.send_result",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "EscalateWithCause",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "StoreTaskTokenAndAwait"
+    },
+
+    "WaitForApproval": {
+      "Type": "Task",
+      "Comment": "Pause and wait for analyst to approve/reject via SQS queue. Task token sent to queue.",
+      "Resource": "arn:aws:states:::sqs:sendMessage.waitForTaskToken",
+      "Parameters": {
+        "QueueUrl": "${ApprovalQueueUrl}",
+        "MessageBody": {
+          "case_id.$": "$.case_id",
+          "outreach.$": "$.outreach",
+          "task_token.$": "$$.Task.Token"
+        }
+      },
+      "ResultPath": "$.approval_result",
+      "TimeoutSeconds": 172800,
+      "Comment": "48-hour flat approval window — no heartbeat expected, TimeoutSeconds is correct",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.TaskTimedOut"],
+          "Next": "EscalateWithCause",
+          "ResultPath": "$.error",
+          "Comment": "Approval not received within 48 hours — escalate"
+        },
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "EscalateWithCause",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "CheckApprovalDecision"
+    },
+
+    "CheckApprovalDecision": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.approval_result.decision",
+          "StringEquals": "APPROVED",
+          "Next": "SendOutreachEmail"
+        },
+        {
+          "Variable": "$.approval_result.decision",
+          "StringEquals": "REJECTED",
+          "Next": "CloseCase"
+        }
+      ],
+      "Default": "EscalateWithoutCause"
+    },
+
+    "StoreTaskTokenAndAwait": {
+      "Type": "Task",
+      "Comment": "Fix 1: Lambda writes task token to Cases table then the state machine waits here. Stream 4 (Inbound Analysis Agent) resumes by calling sfn:SendTaskSuccess with the stored token (Req 12.3).",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": "${StoreTaskTokenFunctionArn}",
+        "Payload": {
+          "case_id.$": "$.case_id",
+          "task_token.$": "$$.Task.Token"
+        }
+      },
+      "ResultPath": "$.inbound_result",
+      "HeartbeatSeconds": 864000,
+      "Comment": "Default 10 business-day customer response window (Req 12.3)",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.HeartbeatTimeout", "States.TaskTimedOut"],
+          "Next": "EscalateWithCause",
+          "ResultPath": "$.error",
+          "Comment": "Customer response window expired — escalate (Req 12.3)"
+        },
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "EscalateWithCause",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "ValidateAndUpdate"
+    },
+
+    "ValidateAndUpdate": {
+      "Type": "Task",
+      "Comment": "Stream 5 — Validate extracted fields and write to KYC system of record. Fix 2: parameters match handler.py contract.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${ValidateAndUpdateFunctionArn}",
+        "Payload": {
+          "case_id.$": "$.case_id",
+          "client_id.$": "$.client_id",
+          "inbound_result.$": "$.inbound_result"
+        }
+      },
+      "ResultSelector": { "validation_result.$": "$.Payload" },
+      "ResultPath": "$.validation_result",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "EscalateWithCause",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "ProcessFollowUp"
+    },
+
+    "ProcessFollowUp": {
+      "Type": "Task",
+      "Comment": "Stream 5 — Re-run gap analysis, decide: CLOSE | FOLLOW_UP | ESCALATE.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${ProcessFollowUpFunctionArn}",
+        "Payload": {
+          "case_id.$": "$.case_id",
+          "client_id.$": "$.client_id"
+        }
+      },
+      "ResultSelector": { "follow_up_result.$": "$.Payload" },
+      "ResultPath": "$.follow_up_result",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "EscalateWithCause",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "CheckFollowUpDecision"
+    },
+
+    "CheckFollowUpDecision": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.follow_up_result.follow_up_result.next_action",
+          "StringEquals": "CLOSE",
+          "Next": "CloseCase"
+        },
+        {
+          "Variable": "$.follow_up_result.follow_up_result.next_action",
+          "StringEquals": "FOLLOW_UP",
+          "Next": "DraftOutreach"
+        }
+      ],
+      "Default": "EscalateWithoutCause"
+    },
+
+    "EscalateWithCause": {
+      "Type": "Pass",
+      "Comment": "Arrived via a Catch block — $.error.Cause contains the real reason (e.g. KYC retrieval failure, SLA breach). Preserve it as escalation_reason for the analyst (Req 9.2).",
+      "Parameters": {
+        "case_id.$": "$.case_id",
+        "escalation_reason.$": "$.error.Cause"
+      },
+      "Next": "HandleEscalation"
+    },
+
+    "EscalateWithoutCause": {
+      "Type": "Pass",
+      "Comment": "Arrived via a Choice Default with no error object (CheckApprovalDecision or CheckFollowUpDecision unexpected value). Use a contextual fallback reason — no $.error.Cause exists on this path.",
+      "Parameters": {
+        "case_id.$": "$.case_id",
+        "escalation_reason": "Unexpected decision value — manual review required"
+      },
+      "Next": "HandleEscalation"
+    },
+
+    "HandleEscalation": {
+      "Type": "Task",
+      "Comment": "Stream 5 — Uniform escalation handler. Sets ESCALATED status and fires SNS notification. Always receives case_id and escalation_reason from EscalateWithCause or EscalateWithoutCause.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${HandleEscalationFunctionArn}",
+        "Payload": {
+          "case_id.$": "$.case_id",
+          "escalation_reason.$": "$.escalation_reason",
+          "source": "CaseOrchestrator"
+        }
+      },
+      "ResultPath": "$.escalation_result",
+      "Next": "CaseFailed"
+    },
+
+    "CloseCase": {
+      "Type": "Task",
+      "Comment": "Stream 5 — Mark case CLOSED (all requirements satisfied). Fix 4: Lambda now exists.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${CloseCaseFunctionArn}",
+        "Payload": {
+          "case_id.$": "$.case_id"
+        }
+      },
+      "ResultPath": "$.close_result",
+      "Next": "CaseSucceeded"
+    },
+
+    "CaseSucceeded": {
+      "Type": "Succeed"
+    },
+
+    "CaseFailed": {
+      "Type": "Fail",
+      "Error": "CaseEscalated",
+      "Cause": "Case was escalated to analyst — see Cases table for escalation_reason"
+    }
+
+  }
+}
