@@ -1,3 +1,9 @@
+## [1.1.0](https://github.com/Arvind2015/ClientOutreach/compare/v1.0.0...v1.1.0) (2026-07-25)
+
+### Features
+
+* Arvind: update spec to AgentCore Runtime/Gateway/Memory and clarify analyst view strategy ([f6b84b0](https://github.com/Arvind2015/ClientOutreach/commit/f6b84b048d3d57fb1b05122e01d1b450a575e60b))
+
 ## 1.0.0 (2026-07-25)
 
 ### Features
