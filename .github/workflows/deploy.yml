@@ -77,7 +77,8 @@ jobs:
         run: |
           cd src/shared/common-layer
           pip install -r requirements.txt -t python/ --quiet
-          zip -r ../../../common-layer.zip python/ *.py
+          cp *.py python/
+          zip -r ../../../common-layer.zip python/
           cd ../../..
           aws s3 cp common-layer.zip \
             s3://$DEPLOY_BUCKET/shared/common-layer/latest/common-layer.zip
@@ -148,7 +149,7 @@ jobs:
       - name: Package and upload stream5 functions
         if: needs.detect-changes.outputs.stream5 == 'true'
         run: |
-          for fn in handle-escalation process-follow-up export-audit-trail; do
+          for fn in close-case store-task-token handle-escalation process-follow-up validate-and-update export-audit-trail; do
             dir="src/stream5/$fn"
             if [ -d "$dir" ]; then
               cd "$dir"
@@ -158,21 +159,6 @@ jobs:
               aws s3 cp "${fn}.zip" \
                 "s3://$DEPLOY_BUCKET/stream5/$fn/latest/${fn}.zip"
               echo "Uploaded stream5/$fn"
-            fi
-          done
-
-      - name: Package and upload stream5 mock functions
-        if: needs.detect-changes.outputs.stream5 == 'true'
-        run: |
-          for fn in mock-get-kyc-profile mock-run-gap-analysis mock-draft-outreach mock-send-outreach mock-analyse-attachment mock-validate-and-update; do
-            dir="src/stream5/mocks/$fn"
-            if [ -d "$dir" ]; then
-              cd "$dir"
-              zip -r "../../../../${fn}.zip" . -x "*.pyc" -x "__pycache__/*"
-              cd ../../../..
-              aws s3 cp "${fn}.zip" \
-                "s3://$DEPLOY_BUCKET/stream5/mocks/$fn/latest/${fn}.zip"
-              echo "Uploaded stream5/mocks/$fn"
             fi
           done
 
