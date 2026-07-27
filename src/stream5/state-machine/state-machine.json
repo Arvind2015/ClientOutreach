@@ -241,7 +241,7 @@
 
     "ProcessFollowUp": {
       "Type": "Task",
-      "Comment": "Stream 5 — Re-run gap analysis, decide: CLOSE | FOLLOW_UP | ESCALATE.",
+      "Comment": "Stream 5 — Re-run gap analysis, decide: CLOSE | FOLLOW_UP | ESCALATE. ResultPath overwrites $.gap_analysis so DraftOutreach always reads fresh gaps on follow-up loops.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${ProcessFollowUpFunctionArn}",
@@ -250,8 +250,8 @@
           "client_id.$": "$.client_id"
         }
       },
-      "ResultSelector": { "follow_up_result.$": "$.Payload" },
-      "ResultPath": "$.follow_up_result",
+      "ResultSelector": { "gap_analysis.$": "$.Payload.gap_analysis", "next_action.$": "$.Payload.next_action", "follow_up_count.$": "$.Payload.follow_up_count" },
+      "ResultPath": "$.gap_analysis",
       "Catch": [
         {
           "ErrorEquals": ["States.ALL"],
@@ -266,12 +266,12 @@
       "Type": "Choice",
       "Choices": [
         {
-          "Variable": "$.follow_up_result.follow_up_result.next_action",
+          "Variable": "$.gap_analysis.next_action",
           "StringEquals": "CLOSE",
           "Next": "CloseCase"
         },
         {
-          "Variable": "$.follow_up_result.follow_up_result.next_action",
+          "Variable": "$.gap_analysis.next_action",
           "StringEquals": "FOLLOW_UP",
           "Next": "DraftOutreach"
         }
