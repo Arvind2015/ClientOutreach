@@ -1,3 +1,9 @@
+## [1.3.0](https://github.com/Arvind2015/ClientOutreach/compare/v1.2.0...v1.3.0) (2026-07-27)
+
+### Features
+
+* Arvind: stream2 KYC retrieval and checklist rules engine (tasks 2, 3) ([6455980](https://github.com/Arvind2015/ClientOutreach/commit/6455980ace88af70445c2bd81f1415ce236b4045))
+
 ## [1.2.0](https://github.com/Arvind2015/ClientOutreach/compare/v1.1.0...v1.2.0) (2026-07-27)
 
 ### Features
