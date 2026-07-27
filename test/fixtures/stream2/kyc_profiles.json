@@ -1,0 +1,56 @@
+{
+  "complete_corporate": {
+    "client_id": "client-001",
+    "client_type": "CORPORATE",
+    "jurisdiction": "UK",
+    "risk_rating": "HIGH",
+    "fields": {
+      "registered_name": { "value": "Acme Corp Ltd", "source": "test", "updated_at": "2026-01-01T00:00:00+00:00" }
+    },
+    "documents": [
+      { "doc_type": "CERTIFICATE_OF_INCORPORATION", "doc_id": "doc-1", "issued_at": "2020-01-01", "expires_at": "2030-01-01", "s3_ref": "s3://test/doc-1.pdf" },
+      { "doc_type": "PROOF_OF_ADDRESS", "doc_id": "doc-2", "issued_at": "2026-01-01", "expires_at": "2027-01-01", "s3_ref": "s3://test/doc-2.pdf" },
+      { "doc_type": "BENEFICIAL_OWNERSHIP_DECLARATION", "doc_id": "doc-3", "issued_at": "2025-06-01", "expires_at": "2027-06-01", "s3_ref": "s3://test/doc-3.pdf" }
+    ],
+    "preferred_language": "en",
+    "preferred_channel": "EMAIL",
+    "retrieved_at": "2026-07-27T00:00:00+00:00"
+  },
+  "expired_document_corporate": {
+    "client_id": "client-002",
+    "client_type": "CORPORATE",
+    "jurisdiction": "UK",
+    "risk_rating": "MEDIUM",
+    "fields": {
+      "registered_name": { "value": "Beta Ltd", "source": "test", "updated_at": "2026-01-01T00:00:00+00:00" }
+    },
+    "documents": [
+      { "doc_type": "CERTIFICATE_OF_INCORPORATION", "doc_id": "doc-4", "issued_at": "2015-01-01", "expires_at": "2020-01-01", "s3_ref": "s3://test/doc-4.pdf" }
+    ],
+    "preferred_language": "en",
+    "preferred_channel": "EMAIL",
+    "retrieved_at": "2026-07-27T00:00:00+00:00"
+  },
+  "missing_document_individual": {
+    "client_id": "client-003",
+    "client_type": "INDIVIDUAL",
+    "jurisdiction": "UK",
+    "risk_rating": "LOW",
+    "fields": {},
+    "documents": [],
+    "preferred_language": "en",
+    "preferred_channel": "EMAIL",
+    "retrieved_at": "2026-07-27T00:00:00+00:00"
+  },
+  "unmatched_client_type": {
+    "client_id": "client-004",
+    "client_type": "TRUST",
+    "jurisdiction": "DE",
+    "risk_rating": "HIGH",
+    "fields": {},
+    "documents": [],
+    "preferred_language": "de",
+    "preferred_channel": "EMAIL",
+    "retrieved_at": "2026-07-27T00:00:00+00:00"
+  }
+}
