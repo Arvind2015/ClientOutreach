@@ -1,3 +1,9 @@
+## [1.3.2](https://github.com/Arvind2015/ClientOutreach/compare/v1.3.1...v1.3.2) (2026-07-27)
+
+### Bug Fixes
+
+* move DEPLOY_BUCKET secret to job-level env for reliable resolution ([7b2c075](https://github.com/Arvind2015/ClientOutreach/commit/7b2c075732253bb586932e569bdd1e6023bfb8e0))
+
 ## [1.3.1](https://github.com/Arvind2015/ClientOutreach/compare/v1.3.0...v1.3.1) (2026-07-27)
 
 ### Bug Fixes
