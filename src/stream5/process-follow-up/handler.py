@@ -1,21 +1,26 @@
 """
 Stream 5 — Follow-Up Loop (Tasks 6.4–6.7)
 
-After a validation pass, re-runs the Matching Engine to compute remaining gaps.
-If gaps remain, generates a follow-up outreach email via the Outreach Drafting
-Agent. Enforces max follow-up cycle limit and forces escalation on breach.
+After a validation pass, re-runs the Matching Engine (Stream 2) to compute
+remaining gaps. Returns the updated GapAnalysisResult in the same shape that
+RunGapAnalysis produces, plus next_action and follow_up_count — so the state
+machine's DraftOutreach state can consume $.gap_analysis unchanged on every
+loop iteration.
+
+Enforces max follow-up cycle limit and forces escalation on breach.
 
 Inputs (from Step Functions):
   - case_id: str
   - client_id: str
 
-Outputs:
+Outputs (written to $.gap_analysis by ResultPath in the state machine):
+  - gap_analysis: dict   # full GapAnalysisResult shape {case_id, client_id, has_gaps, outstanding, computed_at}
   - next_action: CLOSE | FOLLOW_UP | ESCALATE
   - follow_up_count: int
-  - remaining_gaps: list[str]   # requirement_type codes still outstanding
 """
 
 import os
+import json
 import boto3
 from datetime import datetime, timezone
 
@@ -24,7 +29,10 @@ sys.path.insert(0, "/opt/python")  # Lambda layer path
 from audit import emit_audit_event
 
 dynamodb = boto3.resource("dynamodb")
+lambda_client = boto3.client("lambda")
+
 cases_table = dynamodb.Table(os.environ["CASES_TABLE"])
+GAP_ANALYSIS_FUNCTION_ARN = os.environ["RUN_GAP_ANALYSIS_FUNCTION_ARN"]
 
 # Configurable — matches design.md default of 3 cycles
 MAX_FOLLOW_UP_CYCLES = int(os.environ.get("MAX_FOLLOW_UP_CYCLES", "3"))
@@ -37,36 +45,39 @@ def handler(event, context):
     case = _get_case(case_id)
     follow_up_count = case.get("follow_up_count", 0)
 
-    # TODO: invoke Matching Engine (Stream 2) to get updated gap analysis
-    remaining_gaps = _run_gap_analysis(client_id)
+    # Re-run Stream 2's Matching Engine to get current gap state
+    gap_analysis = _invoke_gap_analysis(case_id, client_id)
+    has_gaps = gap_analysis.get("has_gaps", False)
 
-    if not remaining_gaps:
+    if not has_gaps:
         _update_case(case_id, status="COMPLIANT", follow_up_count=follow_up_count)
         emit_audit_event(case_id, actor="process-follow-up", action="CASE_COMPLIANT")
-        return {"case_id": case_id, "next_action": "CLOSE", "remaining_gaps": []}
+        return {
+            "gap_analysis": gap_analysis,
+            "next_action": "CLOSE",
+            "follow_up_count": follow_up_count,
+        }
 
     if follow_up_count >= MAX_FOLLOW_UP_CYCLES:
         _update_case(case_id, status="ESCALATED", follow_up_count=follow_up_count,
                      reason=f"Max follow-up cycles ({MAX_FOLLOW_UP_CYCLES}) reached")
         emit_audit_event(case_id, actor="process-follow-up",
                          action="MAX_FOLLOW_UP_CYCLES_REACHED")
-        return {"case_id": case_id, "next_action": "ESCALATE",
-                "remaining_gaps": remaining_gaps}
+        return {
+            "gap_analysis": gap_analysis,
+            "next_action": "ESCALATE",
+            "follow_up_count": follow_up_count,
+        }
 
     new_count = follow_up_count + 1
     _update_case(case_id, status="FOLLOW_UP_NEEDED", follow_up_count=new_count)
     emit_audit_event(case_id, actor="process-follow-up",
                      action=f"FOLLOW_UP_TRIGGERED_CYCLE_{new_count}")
 
-    # TODO: invoke Outreach Drafting Agent (Stream 3) via AgentCore Gateway
-    # Pass tightening escalation context based on cycle number
-    _trigger_follow_up_outreach(case_id, client_id, remaining_gaps, new_count)
-
     return {
-        "case_id": case_id,
+        "gap_analysis": gap_analysis,
         "next_action": "FOLLOW_UP",
         "follow_up_count": new_count,
-        "remaining_gaps": remaining_gaps,
     }
 
 
@@ -75,22 +86,33 @@ def _get_case(case_id):
     return response.get("Item", {})
 
 
-def _run_gap_analysis(client_id):
+def _invoke_gap_analysis(case_id, client_id):
     """
-    Invokes the Matching Engine Lambda (Stream 2) and returns list of
-    outstanding requirement_type codes.
+    Invoke Stream 2's run-gap-analysis Lambda to get a fresh GapAnalysisResult.
+    Returns the full result dict: {case_id, client_id, has_gaps, outstanding, computed_at}
     """
-    # TODO: invoke stream2/run-gap-analysis Lambda
-    raise NotImplementedError("Gap analysis invocation not yet implemented")
+    payload = {
+        "case_id": case_id,
+        "client_id": client_id,
+        "kyc_profile": {"case_id": case_id, "client_id": client_id},
+    }
 
+    response = lambda_client.invoke(
+        FunctionName=GAP_ANALYSIS_FUNCTION_ARN,
+        InvocationType="RequestResponse",
+        Payload=json.dumps(payload).encode("utf-8"),
+    )
 
-def _trigger_follow_up_outreach(case_id, client_id, remaining_gaps, cycle):
-    """
-    Invokes the Outreach Drafting Agent (Stream 3) via AgentCore Gateway.
-    Passes cycle number so tone can tighten on later follow-ups.
-    """
-    # TODO: invoke stream3/draft-outreach-email via AgentCore Gateway
-    raise NotImplementedError("Follow-up outreach trigger not yet implemented")
+    response_payload = json.loads(response["Payload"].read())
+
+    # Handle Lambda invocation errors
+    if "FunctionError" in response:
+        error_msg = response_payload.get("errorMessage", "Unknown error")
+        raise RuntimeError(
+            f"run-gap-analysis invocation failed for case {case_id}: {error_msg}"
+        )
+
+    return response_payload
 
 
 def _update_case(case_id, status, follow_up_count, reason=None):
