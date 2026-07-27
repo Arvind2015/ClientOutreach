@@ -1,0 +1,82 @@
+{
+    "Version":  "2012-10-17",
+    "Statement":  [
+                      {
+                          "Effect":  "Allow",
+                          "Resource":  [
+                                           "arn:aws:dynamodb:eu-central-1:477389928129:table/Cases",
+                                           "arn:aws:dynamodb:eu-central-1:477389928129:table/Audit",
+                                           "arn:aws:dynamodb:eu-central-1:477389928129:table/ChecklistRules",
+                                           "arn:aws:dynamodb:eu-central-1:477389928129:table/KycProfileCache"
+                                       ],
+                          "Action":  [
+                                         "dynamodb:GetItem",
+                                         "dynamodb:PutItem",
+                                         "dynamodb:UpdateItem",
+                                         "dynamodb:Query",
+                                         "dynamodb:Scan"
+                                     ]
+                      },
+                      {
+                          "Effect":  "Allow",
+                          "Resource":  [
+                                           "arn:aws:s3:::cg-kyc-outreach-documents/*",
+                                           "arn:aws:s3:::cg-kyc-outreach-deployments/*",
+                                           "arn:aws:s3:::cg-kyc-outreach-templates/*",
+                                           "arn:aws:s3:::cg-kyc-outreach-raw-email/*"
+                                       ],
+                          "Action":  [
+                                         "s3:GetObject",
+                                         "s3:PutObject"
+                                     ]
+                      },
+                      {
+                          "Effect":  "Allow",
+                          "Resource":  "arn:aws:sns:eu-central-1:477389928129:*",
+                          "Action":  [
+                                         "sns:Publish"
+                                     ]
+                      },
+                      {
+                          "Effect":  "Allow",
+                          "Resource":  "arn:aws:sqs:eu-central-1:477389928129:*",
+                          "Action":  [
+                                         "sqs:SendMessage",
+                                         "sqs:ReceiveMessage",
+                                         "sqs:DeleteMessage"
+                                     ]
+                      },
+                      {
+                          "Effect":  "Allow",
+                          "Resource":  "*",
+                          "Action":  [
+                                         "states:SendTaskSuccess",
+                                         "states:SendTaskFailure",
+                                         "states:SendTaskHeartbeat"
+                                     ]
+                      },
+                      {
+                          "Effect":  "Allow",
+                          "Resource":  "arn:aws:events:eu-central-1:477389928129:event-bus/kyc-outreach-audit",
+                          "Action":  [
+                                         "events:PutEvents"
+                                     ]
+                      },
+                      {
+                          "Effect":  "Allow",
+                          "Resource":  "*",
+                          "Action":  [
+                                         "bedrock:InvokeModel",
+                                         "bedrock:InvokeModelWithResponseStream"
+                                     ]
+                      },
+                      {
+                          "Effect":  "Allow",
+                          "Resource":  "*",
+                          "Action":  [
+                                         "ses:SendEmail",
+                                         "ses:SendRawEmail"
+                                     ]
+                      }
+                  ]
+}
