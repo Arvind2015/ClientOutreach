@@ -1,3 +1,10 @@
+## [1.3.1](https://github.com/Arvind2015/ClientOutreach/compare/v1.3.0...v1.3.1) (2026-07-27)
+
+### Bug Fixes
+
+* Arvind: stream5 follow-up loop, validation logic, and state-machine stale gap_analysis bug ([350e2e5](https://github.com/Arvind2015/ClientOutreach/commit/350e2e598686971584497dd6706a963dc76d2989))
+* Arvind: stream5 process-follow-up invokes real KYC profile, fix name lookup in validate-and-update ([0f949fb](https://github.com/Arvind2015/ClientOutreach/commit/0f949fbb17b95f03dc1ad9cac790c00a1d185ab9))
+
 ## [1.3.0](https://github.com/Arvind2015/ClientOutreach/compare/v1.2.0...v1.3.0) (2026-07-27)
 
 ### Features
