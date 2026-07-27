@@ -167,17 +167,29 @@ def _validate(extracted_fields, requirement_type, client_id):
 
 def _get_client_name_on_file(client_id):
     """
-    Retrieve the client's on-file name from the Cases table (or KYC profile cache).
+    Retrieve the client's on-file name. Queries the Cases table using a
+    scan/filter on client_id (since the table is keyed by case_id, not client_id).
     Returns None if unavailable — validation proceeds without name check in that case.
+
+    TODO: once KYC system of record is confirmed, read from the authoritative source
+    or from the KycProfileCache table (keyed by client_id) directly.
     """
-    # In production, this would query the KycProfileCache table. For now, we
-    # read from the Cases table where the client_id maps to a known profile.
-    # TODO: once KYC system of record is confirmed, read from the authoritative source.
     try:
-        response = cases_table.get_item(Key={"case_id": client_id})
-        item = response.get("Item")
-        if item:
-            return item.get("client_name")
+        # KycProfileCache is keyed by client_id — use it if available
+        kyc_cache_table_name = os.environ.get("KYC_PROFILE_CACHE_TABLE")
+        if kyc_cache_table_name:
+            kyc_cache_table = dynamodb.Table(kyc_cache_table_name)
+            response = kyc_cache_table.get_item(Key={"client_id": client_id})
+            item = response.get("Item")
+            if item:
+                profile = item.get("profile", {})
+                fields = profile.get("fields", {})
+                # Try registered_name (corporate) or full_name (individual)
+                name_field = fields.get("registered_name") or fields.get("full_name")
+                if name_field and isinstance(name_field, dict):
+                    return name_field.get("value")
+                elif isinstance(name_field, str):
+                    return name_field
     except Exception:
         pass
     return None

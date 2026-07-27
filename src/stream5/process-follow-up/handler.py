@@ -33,6 +33,7 @@ lambda_client = boto3.client("lambda")
 
 cases_table = dynamodb.Table(os.environ["CASES_TABLE"])
 GAP_ANALYSIS_FUNCTION_ARN = os.environ["RUN_GAP_ANALYSIS_FUNCTION_ARN"]
+GET_KYC_PROFILE_FUNCTION_ARN = os.environ["GET_KYC_PROFILE_FUNCTION_ARN"]
 
 # Configurable — matches design.md default of 3 cycles
 MAX_FOLLOW_UP_CYCLES = int(os.environ.get("MAX_FOLLOW_UP_CYCLES", "3"))
@@ -45,8 +46,14 @@ def handler(event, context):
     case = _get_case(case_id)
     follow_up_count = case.get("follow_up_count", 0)
 
-    # Re-run Stream 2's Matching Engine to get current gap state
-    gap_analysis = _invoke_gap_analysis(case_id, client_id)
+    # Re-run Stream 2's Retrieval Agent then Matching Engine to get current gap state
+    # Note: get-kyc-profile has a 24h cache, so a document that validate-and-update
+    # just wrote back (via the still-stubbed _write_to_kyc_system) won't appear in
+    # the cached profile until TTL expires. Acceptable known gap while the KYC system
+    # of record adapter remains a stub — once real writes land, the cache invalidation
+    # strategy will need revisiting.
+    kyc_profile = _invoke_get_kyc_profile(case_id, client_id)
+    gap_analysis = _invoke_gap_analysis(case_id, client_id, kyc_profile)
     has_gaps = gap_analysis.get("has_gaps", False)
 
     if not has_gaps:
@@ -86,15 +93,40 @@ def _get_case(case_id):
     return response.get("Item", {})
 
 
-def _invoke_gap_analysis(case_id, client_id):
+def _invoke_get_kyc_profile(case_id, client_id):
+    """
+    Invoke Stream 2's get-kyc-profile Lambda to retrieve the full normalised
+    KycProfile (client_type, jurisdiction, risk_rating, fields, documents).
+    """
+    payload = {"case_id": case_id, "client_id": client_id}
+
+    response = lambda_client.invoke(
+        FunctionName=GET_KYC_PROFILE_FUNCTION_ARN,
+        InvocationType="RequestResponse",
+        Payload=json.dumps(payload).encode("utf-8"),
+    )
+
+    response_payload = json.loads(response["Payload"].read())
+
+    if "FunctionError" in response:
+        error_msg = response_payload.get("errorMessage", "Unknown error")
+        raise RuntimeError(
+            f"get-kyc-profile invocation failed for case {case_id}: {error_msg}"
+        )
+
+    return response_payload
+
+
+def _invoke_gap_analysis(case_id, client_id, kyc_profile):
     """
     Invoke Stream 2's run-gap-analysis Lambda to get a fresh GapAnalysisResult.
+    Passes the real KycProfile so rule resolution and document/field diffing work correctly.
     Returns the full result dict: {case_id, client_id, has_gaps, outstanding, computed_at}
     """
     payload = {
         "case_id": case_id,
         "client_id": client_id,
-        "kyc_profile": {"case_id": case_id, "client_id": client_id},
+        "kyc_profile": kyc_profile,
     }
 
     response = lambda_client.invoke(
