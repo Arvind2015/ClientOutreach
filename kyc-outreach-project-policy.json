@@ -21,7 +21,9 @@
                           "Effect":  "Allow",
                           "Resource":  [
                                            "arn:aws:s3:::cg-kyc-outreach-documents/*",
-                                           "arn:aws:s3:::cg-kyc-outreach-deployments/*"
+                                           "arn:aws:s3:::cg-kyc-outreach-deployments/*",
+                                           "arn:aws:s3:::cg-kyc-outreach-templates/*",
+                                           "arn:aws:s3:::cg-kyc-outreach-raw-email/*"
                                        ],
                           "Action":  [
                                          "s3:GetObject",
@@ -51,6 +53,29 @@
                                          "states:SendTaskSuccess",
                                          "states:SendTaskFailure",
                                          "states:SendTaskHeartbeat"
+                                     ]
+                      },
+                      {
+                          "Effect":  "Allow",
+                          "Resource":  "arn:aws:events:eu-central-1:477389928129:event-bus/kyc-outreach-audit",
+                          "Action":  [
+                                         "events:PutEvents"
+                                     ]
+                      },
+                      {
+                          "Effect":  "Allow",
+                          "Resource":  "*",
+                          "Action":  [
+                                         "bedrock:InvokeModel",
+                                         "bedrock:InvokeModelWithResponseStream"
+                                     ]
+                      },
+                      {
+                          "Effect":  "Allow",
+                          "Resource":  "*",
+                          "Action":  [
+                                         "ses:SendEmail",
+                                         "ses:SendRawEmail"
                                      ]
                       }
                   ]
