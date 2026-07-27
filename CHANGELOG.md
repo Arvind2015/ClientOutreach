@@ -1,3 +1,13 @@
+## [1.2.0](https://github.com/Arvind2015/ClientOutreach/compare/v1.1.0...v1.2.0) (2026-07-27)
+
+### Features
+
+* Arvind: stream5 full scaffold with all fixes and Req 10.1 audit emission ([4b6c47f](https://github.com/Arvind2015/ClientOutreach/commit/4b6c47fe4081cdd2d462eaa2b3cd3edccfe21ddf))
+
+### Bug Fixes
+
+* Arvind: correct deploy.yml stream5/shared-layer packaging bugs ([386f381](https://github.com/Arvind2015/ClientOutreach/commit/386f3811d84f27a0a54a10a01aea395532b7ae71))
+
 ## [1.1.0](https://github.com/Arvind2015/ClientOutreach/compare/v1.0.0...v1.1.0) (2026-07-25)
 
 ### Features
