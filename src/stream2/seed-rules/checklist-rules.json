@@ -1,0 +1,43 @@
+[
+  {
+    "rule_id": "rule-corporate-uk-high",
+    "client_type": "CORPORATE",
+    "jurisdiction": "UK",
+    "risk_rating": "HIGH",
+    "required": [
+      { "requirement_type": "CERTIFICATE_OF_INCORPORATION", "validity_window_days": 1825, "mandatory": true },
+      { "requirement_type": "PROOF_OF_ADDRESS", "validity_window_days": 90, "mandatory": true },
+      { "requirement_type": "BENEFICIAL_OWNERSHIP_DECLARATION", "validity_window_days": 365, "mandatory": true }
+    ]
+  },
+  {
+    "rule_id": "rule-corporate-uk-medium",
+    "client_type": "CORPORATE",
+    "jurisdiction": "UK",
+    "risk_rating": "MEDIUM",
+    "required": [
+      { "requirement_type": "CERTIFICATE_OF_INCORPORATION", "validity_window_days": 1825, "mandatory": true },
+      { "requirement_type": "PROOF_OF_ADDRESS", "validity_window_days": 90, "mandatory": true }
+    ]
+  },
+  {
+    "rule_id": "rule-individual-uk-low",
+    "client_type": "INDIVIDUAL",
+    "jurisdiction": "UK",
+    "risk_rating": "LOW",
+    "required": [
+      { "requirement_type": "PASSPORT", "validity_window_days": 3650, "mandatory": true },
+      { "requirement_type": "PROOF_OF_ADDRESS", "validity_window_days": 90, "mandatory": true }
+    ]
+  },
+  {
+    "rule_id": "rule-default-baseline",
+    "client_type": "DEFAULT_BASELINE",
+    "jurisdiction": "DEFAULT_BASELINE",
+    "risk_rating": "DEFAULT_BASELINE",
+    "required": [
+      { "requirement_type": "PROOF_OF_IDENTITY", "validity_window_days": 3650, "mandatory": true },
+      { "requirement_type": "PROOF_OF_ADDRESS", "validity_window_days": 90, "mandatory": true }
+    ]
+  }
+]
