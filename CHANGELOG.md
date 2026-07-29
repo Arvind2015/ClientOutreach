@@ -1,3 +1,9 @@
+## [1.5.0](https://github.com/Arvind2015/ClientOutreach/compare/v1.4.0...v1.5.0) (2026-07-29)
+
+### Features
+
+* Arvind: stream3 outreach generation and sending (tasks 4.1-4.8) ([dccd148](https://github.com/Arvind2015/ClientOutreach/commit/dccd148e97e22cca2e0e5e5e5a4d60e6d54d5550))
+
 ## [1.4.0](https://github.com/Arvind2015/ClientOutreach/compare/v1.3.2...v1.4.0) (2026-07-29)
 
 ### Features
