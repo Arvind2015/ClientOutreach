@@ -1,3 +1,9 @@
+## [1.4.0](https://github.com/Arvind2015/ClientOutreach/compare/v1.3.2...v1.4.0) (2026-07-29)
+
+### Features
+
+* Arvind: migrate Stream 4 Bedrock calls from Claude 3 Sonnet to Nova Pro ([f94a30e](https://github.com/Arvind2015/ClientOutreach/commit/f94a30e2c89a0fd59dcb5b1804efb2f3c9f6ffde))
+
 ## [1.3.2](https://github.com/Arvind2015/ClientOutreach/compare/v1.3.1...v1.3.2) (2026-07-27)
 
 ### Bug Fixes
