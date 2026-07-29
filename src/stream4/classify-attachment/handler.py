@@ -1,10 +1,10 @@
 """
 Stream 4 — Classify Attachment (Task 5.4)
 
-Uses Amazon Bedrock (Claude) to classify each safe attachment against the
-set of outstanding KYC requirement types for the case. Determines which
-requirement each document satisfies (e.g., passport, proof of address,
-certificate of incorporation).
+Uses Amazon Bedrock (Nova Pro via Converse API) to classify each safe
+attachment against the set of outstanding KYC requirement types for the case.
+Determines which requirement each document satisfies (e.g., passport, proof
+of address, certificate of incorporation).
 
 The classifier produces:
   - classification: the requirement_type this document satisfies
@@ -37,7 +37,7 @@ bedrock_runtime = boto3.client("bedrock-runtime")
 dynamodb = boto3.resource("dynamodb")
 
 DOCUMENTS_BUCKET = os.environ["DOCUMENTS_BUCKET"]
-BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "anthropic.claude-3-sonnet-20240229-v1:0")
+BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "amazon.nova-pro-v1:0")
 CASES_TABLE = os.environ["CASES_TABLE"]
 cases_table = dynamodb.Table(CASES_TABLE)
 
@@ -162,26 +162,18 @@ def _invoke_bedrock(prompt, doc_bytes, content_type):
     """
     Call Bedrock with the document for classification.
     Uses the Converse API for multimodal input.
-    """
-    # Map content type to Bedrock document format
-    media_type = content_type
-    if content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-        # DOCX not directly supported as image — extract text first
-        # For v1, treat as a document block
-        media_type = "application/pdf"  # Placeholder — needs DOCX-to-text conversion
 
-    # Build the message with document content
+    Nova Pro requires:
+      - image/jpeg, image/png → image content block
+      - application/pdf, docx  → document content block
+    """
+    content_block = _build_content_block(doc_bytes, content_type)
+
     messages = [
         {
             "role": "user",
             "content": [
-                {
-                    "document": {
-                        "format": _bedrock_format(content_type),
-                        "name": "attachment",
-                        "source": {"bytes": doc_bytes},
-                    }
-                },
+                content_block,
                 {"text": prompt},
             ],
         }
@@ -196,12 +188,41 @@ def _invoke_bedrock(prompt, doc_bytes, content_type):
     return response["output"]["message"]["content"][0]["text"]
 
 
-def _bedrock_format(content_type):
-    """Map MIME type to Bedrock document format string."""
+def _build_content_block(doc_bytes, content_type):
+    """
+    Build the appropriate Bedrock Converse API content block based on MIME type.
+    Nova Pro uses image blocks for JPEG/PNG, document blocks for PDF/DOCX.
+    """
+    if content_type in ("image/jpeg", "image/png"):
+        return {
+            "image": {
+                "format": _bedrock_image_format(content_type),
+                "source": {"bytes": doc_bytes},
+            }
+        }
+    else:
+        return {
+            "document": {
+                "format": _bedrock_document_format(content_type),
+                "name": "attachment",
+                "source": {"bytes": doc_bytes},
+            }
+        }
+
+
+def _bedrock_image_format(content_type):
+    """Map image MIME types to Nova Pro image format strings."""
     mapping = {
-        "application/pdf": "pdf",
         "image/jpeg": "jpeg",
         "image/png": "png",
+    }
+    return mapping.get(content_type, "jpeg")
+
+
+def _bedrock_document_format(content_type):
+    """Map document MIME types to Nova Pro document format strings."""
+    mapping = {
+        "application/pdf": "pdf",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
     }
     return mapping.get(content_type, "pdf")
