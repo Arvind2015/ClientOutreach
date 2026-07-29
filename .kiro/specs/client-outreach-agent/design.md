@@ -168,14 +168,14 @@ Stream 4 is implemented as a **sequential Lambda pipeline**, not an AgentCore Ru
 - Passes `safe_attachments` list to `classify-attachment`; returns `quarantined_attachments` for audit visibility.
 
 **5d. Classify Attachment** (Lambda, calls Bedrock directly)
-- Uses **Amazon Bedrock** (Claude 3 Sonnet via Converse API) for multimodal document classification. Does **not** use AgentCore Runtime or Gateway.
+- Uses **Amazon Bedrock** (Nova Pro via Converse API) for multimodal document classification. Does **not** use AgentCore Runtime or Gateway.
 - Fetches outstanding requirements from the `Cases` table to provide classification context (biases toward expected document types for the case).
 - Sends document bytes + classification prompt to Bedrock. Model returns a JSON response with `classification` (requirement type) and `confidence` score.
 - Known requirement types: `PASSPORT`, `NATIONAL_ID`, `PROOF_OF_ADDRESS`, `CERTIFICATE_OF_INCORPORATION`, `CERTIFICATE_OF_GOOD_STANDING`, `SOURCE_OF_FUNDS_DECLARATION`, `BANK_STATEMENT`, `TAX_CERTIFICATE`, `BENEFICIAL_OWNERSHIP_DECLARATION`, `POWER_OF_ATTORNEY`, `OTHER`.
 - Returns `classified_attachments` list with per-attachment classification and confidence.
 
 **5e. Extract Data** (Lambda, calls Bedrock directly)
-- Uses **Amazon Bedrock** (Claude 3 Sonnet via Converse API) for structured field extraction. Does **not** use Amazon Textract.
+- Uses **Amazon Bedrock** (Nova Pro via Converse API) for structured field extraction. Does **not** use Amazon Textract.
 - Per-document-type extraction schemas define expected fields (e.g., PASSPORT expects `full_name`, `date_of_birth`, `nationality`, `passport_number`, `issued_at`, `expires_at`, `issuing_country`).
 - Sends document bytes + extraction prompt to Bedrock. Model returns extracted fields + confidence.
 - **Confidence adjustment:** raw model confidence is adjusted by field coverage (penalises missing fields). Formula: `adjusted_confidence = raw_confidence * (0.5 + 0.5 * coverage)` where coverage = proportion of expected fields with non-null values.
@@ -294,7 +294,7 @@ All escalation paths converge on the same mechanism: set `Case.status = ESCALATE
 
 - **Encryption:** KMS-encrypted S3 buckets and DynamoDB tables; TLS in transit everywhere (Req 11.1).
 - **Access control:** IAM least-privilege per Lambda/agent role (Req 11.2). The v1 analyst view runs within the existing trusted environment with no separate auth layer. The deliberate fast-follow is a Cognito user pool-backed Amplify app (no bank IdP required for this step — just standard Cognito auth). Full bank IdP federation with role-based multi-analyst access is further future work beyond the fast-follow (see Open Items).
-- **LLM boundary:** AgentCore agents (Streams 2, 3, 5) run within the AWS account's VPC/PrivateLink boundary via AgentCore Runtime and Gateway. Stream 4's classify-attachment and extract-data Lambdas call Amazon Bedrock directly via the Converse API (Claude 3 Sonnet) — same account boundary, same approved model, but without AgentCore intermediation. No data sent to non-approved external APIs (Req 11.3). Confirm with the bank's model-risk/compliance team which Bedrock models are approved for PII processing before implementation.
+- **LLM boundary:** AgentCore agents (Streams 2, 3, 5) run within the AWS account's VPC/PrivateLink boundary via AgentCore Runtime and Gateway. Stream 4's classify-attachment and extract-data Lambdas call Amazon Bedrock directly via the Converse API (Nova Pro) — same account boundary, same approved model, but without AgentCore intermediation. No data sent to non-approved external APIs (Req 11.3). Confirm with the bank's model-risk/compliance team which Bedrock models are approved for PII processing before implementation.
 - **Attachment safety:** file-type allowlist (PDF/JPEG/PNG — DOCX not supported), 4 MB max size, extension/content-type consistency check, dangerous extension blocklist, quarantine on failure. Malware scanning (ClamAV/GuardDuty) is noted as future work (not yet wired).
 - **Template constraint on generation:** outbound customer emails are template-bounded (see Component 4) specifically to reduce prompt-injection and hallucination risk in a regulated, customer-facing channel — this is both a security and compliance control.
 - **Prompt injection consideration:** inbound email/attachment content is treated as untrusted input to the Stream 4 Lambda pipeline (classify-attachment and extract-data steps); extraction/classification outputs are validated deterministically by the resume-workflow step (confidence thresholds) and downstream by Component 6 (Validation & Update) before any KYC record write, so LLM output never directly mutates the system of record without a rules-based check.
@@ -310,7 +310,7 @@ All escalation paths converge on the same mechanism: set `Case.status = ESCALATE
 ## Open Items / Assumptions to Confirm
 
 1. Identity of the specific "KYC system of record" and its API/integration contract (assumed generic adapter above).
-2. Approved Bedrock model(s) for PII-bearing workloads — pending model-risk approval. Stream 4 currently uses `anthropic.claude-3-sonnet-20240229-v1:0` for classification and extraction.
+2. Approved Bedrock model(s) for PII-bearing workloads — pending model-risk approval. Stream 4 currently uses `amazon.nova-pro-v1:0` for classification and extraction.
 3. Definition of "standard case" auto-send criteria — proposed in this design but must be compliance-approved before enabling Requirement 5.1 autonomy.
 4. Whether QLDB (cryptographically verifiable ledger) is required for audit, or DynamoDB+S3 append-only pattern is sufficient for regulatory needs — depends on the bank's audit standards.
 5. Multi-language template coverage scope (Requirement 4.4) — which languages are in scope for v1.
