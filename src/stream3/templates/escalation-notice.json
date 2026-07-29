@@ -1,0 +1,10 @@
+{
+  "template_id": "escalation-notice",
+  "version": 1,
+  "description": "Final notice before case escalation due to non-response",
+  "subject": "Final Notice: KYC Documentation Required - {{case_ref}}",
+  "body": "Dear {{client_name}},\n\nDespite our previous communications (Reference: {{case_ref}}, follow-up {{follow_up_count}}), we have not yet received the required compliance documentation.\n\nThe following items remain outstanding ({{requirements_count}} items):\n{{requirements_list}}\n\nThis is our final automated reminder. If we do not receive the required documents within {{deadline_days}} days, your case will be escalated for manual review by our compliance team, which may result in restrictions on your account.\n\n{{submission_instructions}}\n\nRegards,\n{{bank_name}}",
+  "compliance_status": "PENDING_SIGNOFF",
+  "updated_by": "person.c@bank.example",
+  "updated_at": "2026-07-29T00:00:00Z"
+}

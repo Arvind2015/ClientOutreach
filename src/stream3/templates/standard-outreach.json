@@ -1,0 +1,10 @@
+{
+  "template_id": "standard-outreach",
+  "version": 1,
+  "description": "Initial outreach email for missing/expired KYC documents",
+  "subject": "KYC Information Required - {{case_ref}}",
+  "body": "Dear {{client_name}},\n\nAs part of our ongoing compliance obligations, we need to update certain records we hold for you.\n\nThe following items require your attention ({{requirements_count}} items outstanding):\n{{requirements_list}}\n\n{{submission_instructions}}\n\nPlease provide these documents within {{deadline_days}} days of this email. If you have questions about what is needed, please reply to this email quoting reference {{case_ref}}.\n\nThank you for your prompt attention to this matter.\n\nRegards,\n{{bank_name}}",
+  "compliance_status": "PENDING_SIGNOFF",
+  "updated_by": "person.c@bank.example",
+  "updated_at": "2026-07-29T00:00:00Z"
+}
