@@ -1,0 +1,10 @@
+{
+  "template_id": "follow-up-reminder",
+  "version": 1,
+  "description": "Follow-up reminder for outstanding KYC documents after initial outreach",
+  "subject": "Reminder: KYC Information Still Required - {{case_ref}}",
+  "body": "Dear {{client_name}},\n\nWe previously wrote to you regarding outstanding compliance documentation (Reference: {{case_ref}}). This is follow-up number {{follow_up_count}}.\n\nThe following items are still outstanding ({{requirements_count}} items):\n{{requirements_list}}\n\n{{submission_instructions}}\n\nPlease provide these at your earliest convenience. If we do not receive the required documents within {{deadline_days}} days, this matter may be escalated for further review.\n\nThank you,\n{{bank_name}}",
+  "compliance_status": "PENDING_SIGNOFF",
+  "updated_by": "person.c@bank.example",
+  "updated_at": "2026-07-29T00:00:00Z"
+}
